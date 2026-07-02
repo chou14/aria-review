@@ -13,9 +13,13 @@ import type { ReactElement } from "react";
 import type { AgentRunHandlers } from "../api/client";
 
 // ---- hoisted mock 函数声明（在 vi.mock 提升前就存在）----
-const { mockCreateRun, mockStreamAgentRun } = vi.hoisted(() => ({
+const { mockCreateRun, mockStreamAgentRun, mockSciverseSettings } = vi.hoisted(() => ({
   mockCreateRun: vi.fn(),
   mockStreamAgentRun: vi.fn(),
+  mockSciverseSettings: {
+    apiToken: "",
+    baseUrl: "https://api.sciverse.space",
+  },
 }));
 
 vi.mock("../api/client", async (importOriginal) => {
@@ -26,6 +30,14 @@ vi.mock("../api/client", async (importOriginal) => {
     streamAgentRun: mockStreamAgentRun,
   };
 });
+
+vi.mock("../api/useSciverseSettings", () => ({
+  useSciverseSettings: () => ({
+    settings: mockSciverseSettings,
+    save: vi.fn(),
+    clear: vi.fn(),
+  }),
+}));
 
 // ---- mock markdown (避免 DOMPurify 在 jsdom 中的警告) ----
 vi.mock("../lib/markdown", () => ({
@@ -60,7 +72,7 @@ const ROUND_COMPLETE: AgentRoundCompleteEvent = {
   is_final: true, seq: 3,
 };
 const RUN_COMPLETE: AgentRunCompleteEvent = {
-  type: "run_complete", status: "completed",
+  type: "run_complete", status: "done",
   final_output: "## 综述结论\n本研究共纳入 42 篇文献。",
   seq: 4,
 };
@@ -75,6 +87,8 @@ function renderWithQueryClient(ui: ReactElement) {
 describe("AgentChat + RunTimeline", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSciverseSettings.apiToken = "";
+    mockSciverseSettings.baseUrl = "https://api.sciverse.space";
 
     mockCreateRun.mockResolvedValue({
       runId: "run-123",
@@ -146,7 +160,7 @@ describe("AgentChat + RunTimeline", () => {
     fireEvent.click(screen.getByRole("button", { name: /发送/ }));
 
     await waitFor(() => {
-      // tl-label 显示"运行完成 · completed"
+      // tl-label 显示"运行完成 · done"
       expect(screen.getByText(/运行完成/)).toBeInTheDocument();
     });
   });
@@ -203,6 +217,34 @@ describe("AgentChat + RunTimeline", () => {
       );
       expect(mockStreamAgentRun).toHaveBeenCalledWith(
         42, "run-123", expect.anything(), expect.anything(),
+      );
+    });
+  });
+
+  it("Sciverse 检索选项更新后提交使用最新值", async () => {
+    mockSciverseSettings.apiToken = "old-token";
+    mockSciverseSettings.baseUrl = "https://old.sciverse.test";
+    const { rerender } = render(<AgentChat projectId={42} />);
+
+    fireEvent.change(screen.getByLabelText("Agent 指令输入"), {
+      target: { value: "测试指令" },
+    });
+
+    mockSciverseSettings.apiToken = "new-token";
+    mockSciverseSettings.baseUrl = "https://new.sciverse.test";
+    rerender(<AgentChat projectId={42} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => {
+      expect(mockCreateRun).toHaveBeenCalledWith(
+        42,
+        { prompt: "测试指令", autoConfirm: true },
+        expect.anything(),
+        expect.objectContaining({
+          apiToken: "new-token",
+          baseUrl: "https://new.sciverse.test",
+        }),
       );
     });
   });

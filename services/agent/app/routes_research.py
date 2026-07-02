@@ -26,6 +26,7 @@ from .db import SessionLocal, get_session
 from .errors import ApiError
 from .repositories import ai_job as ai_job_repo
 from .repositories import gaps as gaps_repo
+from .run_status import normalize_run_status
 from .repositories import project as project_repo
 from .review.gap_discover import discover_gaps
 from .review.load import has_readable_fulltext, load_project_corpus
@@ -88,10 +89,13 @@ def _validate_patch_oneof(body: "GapPatchRequest") -> None:
 
 def _run_status(job: Any | None) -> str:
     """AiJob.status → 契约 run_status（前端停轮询信号，§2.4-2）。"""
-    st = getattr(job, "status", None)
+    raw = getattr(job, "status", None)
+    if raw == "error":
+        return "failed"
+    st = normalize_run_status(raw)
     if st == "done":
-        return "completed"
-    if st in ("failed", "error"):
+        return "done"
+    if st == "failed":
         return "failed"
     return "running"
 
@@ -113,9 +117,9 @@ def _discover_job_update(result: dict) -> dict:
     铁律（问题3 修复）：discover_gaps 对 subagent 非 ok 是「透出 outcome 不抛异常」
     （gap_discover.py 注释明示「调用方据此置 job 状态」），故必须在此显式检查 outcome——
     非 "ok" 一律置 failed，绝不静默 done。此前调用方无条件 status="done"，把 gap-finder 的
-    error（如 read_paper 越界失败耗尽轮次）吞成 run_status=completed + 0 条（静默吞错）。
+    error（如 read_paper 越界失败耗尽轮次）吞成 run_status=done + 0 条（静默吞错）。
 
-    completed-empty（codex 二审）：outcome=ok 但 0 条 = 正常跑完未发现，置 done 但标
+    done-empty（codex 二审）：outcome=ok 但 0 条 = 正常跑完未发现，置 done 但标
     summary_json.empty=true + event done_empty，与「系统失败」区分（不改前端状态枚举）。
     """
     outcome = result.get("outcome")

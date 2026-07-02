@@ -12,6 +12,7 @@ FastAPI 唯一后端：前端的唯一入口，负责 agent 编排、LLM、R 分
 
 ## 运行依赖
 
+- Python：3.12（与 Dockerfile `python:3.12-slim` 对齐）。
 - Postgres：项目、论文、附件、RunLog 和 Agent 状态都落库。
 - R 分析服务：`/healthz` 会检查 `R_ANALYSIS_URL` 指向的服务是否可达。
 - LLM/Sciverse/Image key 都是可选项；不配置时走 FakeLLM 或功能降级。
@@ -29,6 +30,9 @@ python scripts/wait_for_db.py --timeout 60
 alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
+
+`requirements.txt` 是人工维护的顶层依赖声明；`requirements.lock` 是由当前 Python 3.12
+虚拟环境 `pip freeze` 生成的复现基线，用于排查依赖漂移或重建一致环境。
 
 服务内 `.env` 会被自动加载。排查干净复现时先确认 `services/agent/.env` 是否存在，
 避免本机隐藏 key 或数据库地址影响结果。

@@ -9,12 +9,13 @@
 import { useMemo, useRef } from "react";
 import type { EChartsOption } from "echarts";
 import { useHistcite, useIntellectual } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ChartCard, EChart, ExportMenu, NetworkCard, envelopeChartProps } from "./viz";
 import type { EChartHandle, Envelope } from "./viz";
 import { buildHistciteGraphOption } from "./viz/advancedCharts";
 import type { HistciteData } from "./viz/advancedCharts";
 
-export function IntellectualPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function IntellectualPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useIntellectual(projectId, corpusId);
   const graph = data?.graph ?? { nodes: [], edges: [] };
 

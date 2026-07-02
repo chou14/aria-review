@@ -257,10 +257,10 @@ function(corpus_id, res, style = "apa", limit = 200) {
 }
 
 #* 主题词只检索 (路径 D): OpenAlex → 规范化候选列表, 不建库
-#* body: {"query":"...", "n":25, "since":"2016-01-01"}
-#* 入参校验: query 必须是 scalar string; n 必须是 scalar int; since 必须是 YYYY 或 YYYY-MM-DD
-#* n 上限 clamp 至 100 (与 from-search 入库上限一致)
-#* 错误语义: 400=入参非法; 502=OpenAlex/网络故障; 200={results:[]}=真空(正常0命中)
+#* body: {"query":"...", "n":25, "since":"2016-01-01"}；limit 可作为 n 的别名
+#* 入参校验: query 必须是 scalar string; n/limit 必须是 scalar int; since 必须是 YYYY 或 YYYY-MM-DD
+#* n/limit 上限 500；超过显式 400，不静默截断
+#* 错误语义: 400=入参非法; 502=首轮 OpenAlex/网络故障; 200={results:[]}=真空或部分结果
 #* @post /search/openalex
 #* @serializer unboxedJSON
 function(req, res) {
@@ -278,27 +278,31 @@ function(req, res) {
   }
   query <- trimws(raw_query)
 
-  raw_n <- body$n
+  raw_n <- if (!is.null(body$n)) body$n else body$limit
   if (is.null(raw_n)) {
     n <- 25L
   } else if (!is.numeric(raw_n) || length(raw_n) != 1L) {
     res$status <- 400
     return(list(error = "VALIDATION_ERROR",
-                detail = "n must be a scalar integer"))
+                detail = "n/limit must be a scalar integer"))
   } else {
     if (raw_n %% 1 != 0) {
       res$status <- 400
       return(list(error = "VALIDATION_ERROR",
-                  detail = "n must be an integer value (no fractional part)"))
+                  detail = "n/limit must be an integer value (no fractional part)"))
     }
     n <- suppressWarnings(as.integer(raw_n))
     if (is.na(n) || n < 1L) {
       res$status <- 400
       return(list(error = "VALIDATION_ERROR",
-                  detail = "n must be a positive integer"))
+                  detail = "n/limit must be a positive integer"))
+    }
+    if (n > 500L) {
+      res$status <- 400
+      return(list(error = "VALIDATION_ERROR",
+                  detail = "n/limit must be <= 500"))
     }
   }
-  n <- min(100L, n)   # clamp ≤100 (与 from-search 入库上限一致)
 
   raw_since <- body$since
   if (is.null(raw_since)) {
@@ -331,9 +335,20 @@ function(req, res) {
   # --- 业务逻辑 ---
   tryCatch({
     candidates <- oa_search_candidates(query, n, since)
-    list(results = candidates)
+    out <- list(results = candidates)
+    if (.oa_partial(candidates)) {
+      out$partial <- TRUE
+      out$partialReason <- .oa_partial_reason(candidates)
+    }
+    out
   }, error = function(e) {
     msg <- conditionMessage(e)
+    if (startsWith(msg, "OPENALEX_LIMIT_EXCEEDED|")) {
+      parts <- strsplit(msg, "|", fixed = TRUE)[[1]]
+      res$status <- 400
+      return(list(error = "VALIDATION_ERROR",
+                  detail = paste(parts[-1], collapse = "|")))
+    }
     # oa_search_candidates 在 OpenAlex 不可达时抛 "OPENALEX_UNAVAILABLE|<status>|<msg>"
     if (startsWith(msg, "OPENALEX_UNAVAILABLE|")) {
       parts <- strsplit(msg, "|", fixed = TRUE)[[1]]

@@ -1,20 +1,13 @@
 import { test, expect } from "@playwright/test";
-import {
-  sampleFullMarkdown,
-  sampleReviewWithProvenance,
-  sampleStructure,
-} from "./provenanceSamples";
+import sampleMarkdown from "../../../packages/contracts/fixtures/sample_markdown.json" with { type: "json" };
+import sampleReviewWithProvenance from "../../../packages/contracts/fixtures/sample_review_with_provenance.json" with { type: "json" };
+import sampleStructure from "../../../packages/contracts/fixtures/sample_structure.json" with { type: "json" };
 
 /**
  * F3 — ★杀手锏：点综述里的引用 → 原文献对应块高亮（markdown 级）+ 双向联动。
- * 用内联合成契约样例，page.route 注入 + window.__DEV_REVIEW__ 注入 review，不依赖后端在线。
+ * 直接消费 packages/contracts/fixtures 共享契约样例，page.route 注入 + window.__DEV_REVIEW__ 注入 review。
  */
-const MARKDOWN = {
-  markdown: sampleFullMarkdown,
-  length: sampleFullMarkdown.length,
-  truncated: false,
-  sha256: sampleStructure.markdown_sha256,
-};
+const MARKDOWN = sampleMarkdown;
 
 test("点综述里的引用 → 原文献对应块高亮", async ({ page }) => {
   await page.route("**/projects/*/papers/*/structure", (r) => r.fulfill({ json: sampleStructure }));

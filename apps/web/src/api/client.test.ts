@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addPapersFromSearch,
+  API_BASE,
   ApiError,
   cancelRun,
   createCorpus,
@@ -16,6 +17,9 @@ import {
   streamAgentRun,
 } from "./client";
 import type { AgentRunHandlers } from "./client";
+import { asRCorpusId } from "./corpusIds";
+
+const CID = asRCorpusId("c");
 
 function mockFetch(status: number, body: unknown) {
   return vi.fn().mockResolvedValue({
@@ -27,6 +31,7 @@ function mockFetch(status: number, body: unknown) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -94,7 +99,7 @@ describe("api client", () => {
   });
 
   it("addPapersFromSearch 入库前清洗候选，避免后端 422", async () => {
-    const f = mockFetch(200, { imported: 1, skipped: 0, failed: 0, paperIds: [1] });
+    const f = mockFetch(200, { imported: 1, skipped: 0, failed: [], failedCount: 0, paperIds: [1] });
     vi.stubGlobal("fetch", f);
     const longAbstract = "a".repeat(20050);
     await addPapersFromSearch(7, [{
@@ -111,11 +116,24 @@ describe("api client", () => {
     const body = JSON.parse(init.body as string);
     const candidate = body.candidates[0];
     expect(body.defaultStatus).toBe("included");
+    expect(candidate.candidateId).toBe("c1");
     expect(candidate.title).toHaveLength(1000);
     expect(candidate.abstract).toHaveLength(20000);
     expect(candidate.year).toBe(2020);
     expect(candidate.authors).toHaveLength(100);
     expect(candidate.externalIds).toHaveLength(20);
+  });
+
+  it("addPapersFromSearch 超过检索上限 500 时前端先行拦截", async () => {
+    const f = mockFetch(200, { imported: 0, skipped: 0, failed: [], failedCount: 0, paperIds: [] });
+    vi.stubGlobal("fetch", f);
+    const candidates = Array.from({ length: 501 }, (_, i) => ({
+      candidate_id: `c${i}`,
+      title: `Paper ${i}`,
+    }));
+
+    await expect(addPapersFromSearch(7, candidates)).rejects.toThrow("检索上限 500");
+    expect(f).not.toHaveBeenCalled();
   });
 
   it("sanitizeSearchCandidateForImport 丢弃越界 year 和过大 raw", () => {
@@ -173,7 +191,7 @@ describe("api client", () => {
 
   it("错误响应抛 ApiError 带 code/status", async () => {
     vi.stubGlobal("fetch", mockFetch(404, { code: "CORPUS_NOT_FOUND", message: "语料不存在" }));
-    await expect(getOverview("p", "c")).rejects.toMatchObject({
+    await expect(getOverview("p", CID)).rejects.toMatchObject({
       code: "CORPUS_NOT_FOUND",
       status: 404,
     });
@@ -186,8 +204,39 @@ describe("api client", () => {
   });
 
   it("网络失败归一为 ApiError(NETWORK_ERROR) (Codex step4-P2)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("conn refused")));
-    await expect(getHealth()).rejects.toMatchObject({ code: "NETWORK_ERROR", status: 0 });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(getHealth()).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      status: 0,
+      isFriendly: true,
+      friendlyMessage: expect.stringContaining(API_BASE),
+      originalMessage: "Failed to fetch",
+    });
+  });
+
+  it("请求永不返回时默认 30s 后抛出可重试超时 ApiError", async () => {
+    vi.useFakeTimers();
+    const f = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        const err = new Error("Aborted");
+        err.name = "AbortError";
+        reject(err);
+      });
+    }));
+    vi.stubGlobal("fetch", f);
+
+    const assertion = expect(getHealth()).rejects.toMatchObject({
+      code: "NETWORK_ERROR",
+      status: 0,
+      friendlyMessage: "请求超时，可重试",
+      originalMessage: "Request timed out after 30000ms",
+      isFriendly: true,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await assertion;
+
+    const [, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("streamReview 解析 SSE 事件序列", async () => {
@@ -206,14 +255,17 @@ describe("api client", () => {
         c.close();
       },
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, status: 200, body: stream, headers: new Headers() } as unknown as Response),
-    );
+    const f = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: stream,
+      headers: new Headers(),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", f);
     const tokens: string[] = [];
     let green = -1;
     let done = false;
-    await streamReview("p", "c", { type: "undergrad", topic: "t" }, {}, {
+    await streamReview("p", CID, { type: "undergrad", topic: "t" }, {}, {
       onToken: (t) => tokens.push(t),
       onCitations: (d) => (green = d.summary.green),
       onDone: () => (done = true),
@@ -221,6 +273,8 @@ describe("api client", () => {
     expect(tokens.join("")).toBe("hello world");
     expect(green).toBe(1);
     expect(done).toBe(true);
+    const [, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeUndefined();
   });
 
   it("streamReview 收到 error 事件后 reject (Codex slice2-P2)", async () => {
@@ -237,7 +291,7 @@ describe("api client", () => {
       vi.fn().mockResolvedValue({ ok: true, status: 200, body: stream, headers: new Headers() } as unknown as Response),
     );
     await expect(
-      streamReview("p", "c", { type: "undergrad", topic: "t" }, {}, {}),
+      streamReview("p", CID, { type: "undergrad", topic: "t" }, {}, {}),
     ).rejects.toMatchObject({ code: "LLM_ERROR" });
   });
 
@@ -252,7 +306,7 @@ describe("api client", () => {
       } as unknown as Response),
     );
     await expect(
-      streamReview("p", "c", { type: "x", topic: "t" }, {}, {}),
+      streamReview("p", CID, { type: "x", topic: "t" }, {}, {}),
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
@@ -305,7 +359,7 @@ describe("api client", () => {
   it("streamAgentRun 正常完成不触发 STREAM_INCOMPLETE onError", async () => {
     const frames = [
       'event: run_start\ndata: {"type":"run_start","max_rounds":5,"model":"m","seq":0}\n\n',
-      'event: run_complete\ndata: {"type":"run_complete","status":"completed","final_output":"done","seq":1}\n\n',
+      'event: run_complete\ndata: {"type":"run_complete","status":"done","final_output":"done","seq":1}\n\n',
     ];
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

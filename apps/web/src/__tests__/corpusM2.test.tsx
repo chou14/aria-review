@@ -7,16 +7,17 @@
  * 3. StageBar：有 ready activeCorpus 时「分析」阶段标为 done
  * 4. StageBar：无 activeCorpus 时「分析」阶段为 active（当前进行中）
  * 5. AnalysisView：无 activeCorpus 时渲染「构建分析语料」按钮
- * 6. AnalysisView：stale=true 时渲染「纳入集已变，点此重算」按钮
+ * 6. AnalysisView：失败/孤儿 parsing 有明确出路，ready 解锁面板
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { materializeCorpus } from "../api/client";
+import { asDbCorpusId, asRCorpusId } from "../api/corpusIds";
 import { StageBar } from "../components/shell/StageBar";
 import { AnalysisView } from "../pages/AnalysisView";
-import type { ActiveCorpus } from "../api/agentHooks";
+import type { ActiveCorpus, LatestCorpus } from "../api/agentHooks";
 
 // ---------------------------------------------------------------------------
 // mock fetch helper
@@ -132,7 +133,7 @@ describe("StageBar stage progression", () => {
 
   it("activeCorpus ready 时 '分析' 为 done", () => {
     const ac: ActiveCorpus = {
-      corpusId: 1, rCorpusId: "r-id", status: "ready",
+      corpusId: asDbCorpusId(1), rCorpusId: asRCorpusId("r-id"), status: "ready",
       documentCount: 2, contentHash: "abc", stale: false,
     };
     const stats = { paperCount: 3, includedCount: 2, activeCorpus: ac };
@@ -148,6 +149,24 @@ describe("StageBar stage progression", () => {
 // ---------------------------------------------------------------------------
 describe("AnalysisView corpus status UI", () => {
   const mockMutate = vi.fn();
+  const failedCorpus: LatestCorpus = {
+    corpusId: asDbCorpusId(8),
+    rCorpusId: null,
+    status: "failed",
+    documentCount: 2,
+    contentHash: "failed-hash",
+    errorReason: "R 解析失败：缺少 AU 字段",
+    createdAt: "2026-07-02T10:00:00.000Z",
+  };
+  const parsingCorpus: LatestCorpus = {
+    corpusId: asDbCorpusId(9),
+    rCorpusId: null,
+    status: "parsing",
+    documentCount: 4,
+    contentHash: "parsing-hash",
+    errorReason: null,
+    createdAt: "2026-07-02T10:01:00.000Z",
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -173,9 +192,41 @@ describe("AnalysisView corpus status UI", () => {
     await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
   });
 
+  it("latestCorpus.failed 时渲染失败原因与重试按钮", () => {
+    mockUseProject.mockReturnValue({ data: { activeCorpus: null, latestCorpus: failedCorpus } });
+    renderAnalysis();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("语料构建失败");
+    expect(screen.getByText("R 解析失败：缺少 AU 字段")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重试构建/ })).toBeInTheDocument();
+  });
+
+  it("mutation error 时渲染错误信息与重试按钮", () => {
+    mockUseMaterializeCorpus.mockReturnValue({
+      mutate: mockMutate,
+      isPending: false,
+      isError: true,
+      error: new Error("网关超时"),
+    });
+    mockUseProject.mockReturnValue({ data: { activeCorpus: null, latestCorpus: null } });
+    renderAnalysis();
+
+    expect(screen.getByText("网关超时")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重试构建/ })).toBeInTheDocument();
+  });
+
+  it("孤儿 parsing 且无进行中 mutation 时渲染重新构建出路", async () => {
+    mockUseProject.mockReturnValue({ data: { activeCorpus: null, latestCorpus: parsingCorpus } });
+    renderAnalysis();
+
+    expect(screen.getByText("上次构建未完成（可能中断）")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /重新构建/ }));
+    await waitFor(() => expect(mockMutate).toHaveBeenCalledTimes(1));
+  });
+
   it("stale=true 时渲染 StaleBar 警告条及「立即重算」按钮（M3）", () => {
     const ac: ActiveCorpus = {
-      corpusId: 1, rCorpusId: "r-id", status: "ready",
+      corpusId: asDbCorpusId(1), rCorpusId: asRCorpusId("r-id"), status: "ready",
       documentCount: 2, contentHash: "abc", stale: true,
     };
     mockUseProject.mockReturnValue({ data: { activeCorpus: ac } });
@@ -188,7 +239,7 @@ describe("AnalysisView corpus status UI", () => {
 
   it("stale=false 时不渲染「立即重算」按钮", () => {
     const ac: ActiveCorpus = {
-      corpusId: 1, rCorpusId: "r-id", status: "ready",
+      corpusId: asDbCorpusId(1), rCorpusId: asRCorpusId("r-id"), status: "ready",
       documentCount: 2, contentHash: "abc", stale: false,
     };
     mockUseProject.mockReturnValue({ data: { activeCorpus: ac } });
@@ -198,7 +249,7 @@ describe("AnalysisView corpus status UI", () => {
 
   it("ready 且 stale=false 时渲染 AnalysisFrame 标题（领域概览）", () => {
     const ac: ActiveCorpus = {
-      corpusId: 1, rCorpusId: "my-corpus-id-99", status: "ready",
+      corpusId: asDbCorpusId(1), rCorpusId: asRCorpusId("my-corpus-id-99"), status: "ready",
       documentCount: 7, contentHash: "abc", stale: false,
     };
     mockUseProject.mockReturnValue({ data: { activeCorpus: ac } });

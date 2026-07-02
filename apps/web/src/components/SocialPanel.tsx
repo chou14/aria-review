@@ -5,9 +5,10 @@
  * 纯渲染 useSocial 既有数据；PDF 语料常缺机构/国家字段 → 对应 graph 空 → 各自诚实空态。
  */
 import { useSocial } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { NetworkCard } from "./viz";
 
-export function SocialPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function SocialPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useSocial(projectId, corpusId);
   const err = isError ? error : undefined;
   const authorCollab = data?.authorCollab ?? { nodes: [], edges: [] };

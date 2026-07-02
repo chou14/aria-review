@@ -22,6 +22,14 @@ const WORKFLOW = [
   { n: 5, label: "导出", desc: "报告引用" },
 ] as const;
 
+/** 日期安全格式化：缺失或非法输入显示占位符，避免渲染 Invalid Date。 */
+export function formatDate(value: string | number | Date | null | undefined): string {
+  if (value == null || value === "") return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("zh-CN");
+}
+
 /** 五步工作流可视化（hero 内 + 复用） */
 function WorkflowFlow() {
   return (
@@ -44,7 +52,7 @@ function WorkflowFlow() {
 
 export function ProjectsPage() {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useProjects();
+  const { data, isLoading, isFetching, error, refetch } = useProjects();
   const createMutation = useCreateProject();
 
   const [name, setName] = useState("");
@@ -71,6 +79,11 @@ export function ProjectsPage() {
   // 首次用户：列表已加载且为空
   const isFirstTime = !!data && data.projects.length === 0;
   const hasProjects = !!data && data.projects.length > 0;
+  const hasInitialLoadError = !!error && !data;
+
+  function retryProjects() {
+    void refetch();
+  }
 
   return (
     <div className="container projects-page">
@@ -102,76 +115,94 @@ export function ProjectsPage() {
 
       <h2 className="projects-heading">我的项目</h2>
 
-      {/* 新建表单 */}
-      <div className="card projects-create-card">
-        <h3 className="projects-create-title">新建 SLR 项目</h3>
-        <form onSubmit={handleCreate}>
-          <div className="projects-field">
-            <label htmlFor="proj-name">项目名称 *</label>
-            <input
-              id="proj-name"
-              className="input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例：电子健康档案隐私保护系统综述"
-            />
-          </div>
-          <div className="projects-field">
-            <label htmlFor="proj-rq">研究问题（可选）</label>
-            <input
-              id="proj-rq"
-              className="input"
-              value={rq}
-              onChange={(e) => setRq(e.target.value)}
-              placeholder="例：哪些技术用于 EHR 数据的隐私保护？"
-            />
-          </div>
-          <div className="projects-field projects-field-last">
-            <label htmlFor="proj-desc">描述（可选）</label>
-            <textarea
-              id="proj-desc"
-              className="input"
-              rows={2}
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder="简要描述研究范围"
-            />
-          </div>
-          {formErr && <p className="projects-form-err">{formErr}</p>}
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? "创建中…" : "创建项目"}
-          </button>
-        </form>
-      </div>
-
-      {/* 项目列表 */}
-      {isLoading && <Loading label="加载项目列表…" />}
-      {error && <ErrMsg error={error} />}
-      {isFirstTime && (
-        <p className="muted">暂无项目，请在上方创建第一个项目。</p>
-      )}
-      {hasProjects && (
-        <div className="proj-grid">
-          {data.projects.map((p) => (
-            <div
-              key={p.id}
-              className="card proj-card"
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(`/projects/${p.id}`)}
-              onKeyDown={(e) => e.key === "Enter" && navigate(`/projects/${p.id}`)}
+      {hasInitialLoadError ? (
+        <ErrMsg
+          error={error}
+          action={(
+            <button
+              type="button"
+              className="btn"
+              onClick={retryProjects}
+              disabled={isFetching}
             >
-              <div className="proj-card-name">{p.name}</div>
-              <div className="muted proj-card-meta">
-                创建于 {new Date(p.createdAt).toLocaleDateString("zh-CN")}
+              {isFetching ? "重试中…" : "重试"}
+            </button>
+          )}
+        />
+      ) : (
+        <>
+          {/* 新建表单 */}
+          <div className="card projects-create-card">
+            <h3 className="projects-create-title">新建 SLR 项目</h3>
+            <form onSubmit={handleCreate}>
+              <div className="projects-field">
+                <label htmlFor="proj-name">项目名称 *</label>
+                <input
+                  id="proj-name"
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="例：电子健康档案隐私保护系统综述"
+                />
               </div>
+              <div className="projects-field">
+                <label htmlFor="proj-rq">研究问题（可选）</label>
+                <input
+                  id="proj-rq"
+                  className="input"
+                  value={rq}
+                  onChange={(e) => setRq(e.target.value)}
+                  placeholder="例：哪些技术用于 EHR 数据的隐私保护？"
+                />
+              </div>
+              <div className="projects-field projects-field-last">
+                <label htmlFor="proj-desc">描述（可选）</label>
+                <textarea
+                  id="proj-desc"
+                  className="input"
+                  rows={2}
+                  value={desc}
+                  onChange={(e) => setDesc(e.target.value)}
+                  placeholder="简要描述研究范围"
+                />
+              </div>
+              {formErr && <p className="projects-form-err">{formErr}</p>}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? "创建中…" : "创建项目"}
+              </button>
+            </form>
+          </div>
+
+          {/* 项目列表 */}
+          {isLoading && <Loading label="加载项目列表…" />}
+          {error && <ErrMsg error={error} />}
+          {isFirstTime && (
+            <p className="muted">暂无项目，请在上方创建第一个项目。</p>
+          )}
+          {hasProjects && (
+            <div className="proj-grid">
+              {data.projects.map((p) => (
+                <div
+                  key={p.id}
+                  className="card proj-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/projects/${p.id}`)}
+                  onKeyDown={(e) => e.key === "Enter" && navigate(`/projects/${p.id}`)}
+                >
+                  <div className="proj-card-name">{p.name}</div>
+                  <div className="muted proj-card-meta">
+                    创建于 {formatDate(p.createdAt)}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );

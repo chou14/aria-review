@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Creator, InclusionStatus, ProjectPaperItem } from "../../api/client";
 import { usePaper } from "../../api/agentHooks";
-import { formatCreators } from "../../lib/ui";
+import { ErrMsg, formatCreators } from "../../lib/ui";
 
 /** 中文排除理由选项 */
 const EXCLUSION_REASONS = [
@@ -52,6 +52,22 @@ function highlightAbstract(text: string, keywords: string[]): React.ReactNode {
       <span key={i}>{part}</span>
     );
   });
+}
+
+type FriendlyError = Error & {
+  friendlyMessage?: string;
+  originalMessage?: string;
+};
+
+function withFriendlyError(error: unknown, friendlyMessage: string): FriendlyError {
+  const source = error as FriendlyError;
+  const originalMessage = source?.originalMessage ?? source?.message ?? (typeof error === "string" ? error : undefined);
+  const wrapped = new Error(originalMessage ?? friendlyMessage) as FriendlyError;
+  wrapped.friendlyMessage = friendlyMessage;
+  if (originalMessage && originalMessage !== friendlyMessage) {
+    wrapped.originalMessage = originalMessage;
+  }
+  return wrapped;
 }
 
 interface Props {
@@ -91,17 +107,28 @@ export function ScreeningMode({ paper, current, total, researchQuestion, onDecid
   const [showExclusion, setShowExclusion] = useState(false);
   const [exclusionReason, setExclusionReason] = useState(EXCLUSION_REASONS[0]);
   const [deciding, setDeciding] = useState(false);
+  const [decideError, setDecideError] = useState<FriendlyError | null>(null);
+  const [lastDecision, setLastDecision] = useState<{ status: InclusionStatus; reason?: string } | null>(null);
 
   // 处理决策
   const decide = async (status: InclusionStatus, reason?: string) => {
     if (deciding) return;
     setDeciding(true);
+    setDecideError(null);
+    setLastDecision({ status, reason });
     try {
       await onDecide(status, reason);
+      setShowExclusion(false);
+    } catch (e) {
+      setDecideError(withFriendlyError(e, "筛选决策保存失败，当前文献已保留，请重试。"));
     } finally {
       setDeciding(false);
-      setShowExclusion(false);
     }
+  };
+
+  const retryLastDecision = () => {
+    if (!lastDecision) return;
+    void decide(lastDecision.status, lastDecision.reason);
   };
 
   // 键盘快捷键
@@ -187,6 +214,17 @@ export function ScreeningMode({ paper, current, total, researchQuestion, onDecid
         )}
       </div>
 
+      {!showExclusion && decideError && (
+        <ErrMsg
+          error={decideError}
+          action={
+            <button className="btn" onClick={retryLastDecision} disabled={deciding}>
+              重试上次决策
+            </button>
+          }
+        />
+      )}
+
       {/* 底部操作栏 */}
       <div className="screening-actions">
         <button
@@ -242,6 +280,16 @@ export function ScreeningMode({ paper, current, total, researchQuestion, onDecid
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
+            {decideError && (
+              <ErrMsg
+                error={decideError}
+                action={
+                  <button className="btn" onClick={retryLastDecision} disabled={deciding}>
+                    重试上次决策
+                  </button>
+                }
+              />
+            )}
             <div className="exclusion-dialog-actions">
               <button className="btn btn-ghost" onClick={() => setShowExclusion(false)}>取消</button>
               <button

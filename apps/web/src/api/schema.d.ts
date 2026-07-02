@@ -81,6 +81,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出所有项目 */
+        get: operations["listProjects"];
+        put?: never;
+        /** 创建新项目 */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取项目详情
+         * @description 返回项目统计、当前 activeCorpus（最新 ready）和 latestCorpus（最近一次构建，含失败原因）。
+         */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{pid}/corpus/materialize": {
         parameters: {
             query?: never;
@@ -411,6 +449,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出项目文献 */
+        get: operations["getProjectPapers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/papers/{paperId}": {
         parameters: {
             query?: never;
@@ -420,6 +475,41 @@ export interface paths {
         };
         /** 取项目内单篇文献详情（含 tags/notes/纳排状态/结构化抽取结果） */
         get: operations["getPaperDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 更新文献纳排状态 */
+        patch: operations["patchInclusion"];
+        trace?: never;
+    };
+    "/projects/{projectId}/papers/{paperId}/markdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取 MinerU Markdown 全文预览 */
+        get: operations["getPaperMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/papers/{paperId}/structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取文档结构化溯源数据 */
+        get: operations["getStructure"];
         put?: never;
         post?: never;
         delete?: never;
@@ -595,6 +685,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/quality-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取项目语料轻量质检报告 */
+        get: operations["getQualityReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{projectId}/prisma": {
         parameters: {
             query?: never;
@@ -751,6 +858,229 @@ export interface paths {
          * @description SSE 流 (text/event-stream)。事件: meta(模板+章节) / chapter(章节开始) / token(增量正文) / citations(引用校验 summary+annotated) / done / error。 用户自带 LLM key 经 X-LLM-Key 头透传, 不落盘 (沿用 v0.6)。前端用 fetch+ReadableStream 消费 (非 EventSource, 因需 POST body + 自定义头)。
          */
         post: operations["streamReview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 测试 LLM 连通性 */
+        post: operations["pingLlm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai/image/ping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 测试生图服务连通性 */
+        post: operations["pingImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/ai/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出项目 AI 任务 */
+        get: operations["listAiJobs"];
+        put?: never;
+        /** 创建可恢复的 AI 生成任务 */
+        post: operations["createAiJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/ai/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取 AI 任务详情 */
+        get: operations["getAiJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 列出项目 Agent Runs */
+        get: operations["listRuns"];
+        put?: never;
+        /** 创建并启动 Agent Run */
+        post: operations["createRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取 Agent Run 详情 */
+        get: operations["getRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Run SSE 事件流 */
+        get: operations["streamAgentRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 确认或拒绝待确认工具调用 */
+        post: operations["confirmRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 暂停 Agent Run */
+        post: operations["pauseRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 恢复 Agent Run */
+        post: operations["resumeRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 取消 Agent Run */
+        post: operations["cancelRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/runlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 导出可验证 RunLog */
+        get: operations["getRunLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{pid}/agent/runs/{rid}/grounding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 获取 grounding 可信凭证摘要 */
+        get: operations["getGrounding"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -966,6 +1296,19 @@ export interface components {
             status: "failed";
         };
         CorpusRef: components["schemas"]["CorpusParsing"] | components["schemas"]["CorpusReady"] | components["schemas"]["CorpusFailed"];
+        ProjectCreateRequest: {
+            name: string;
+            researchQuestion?: string | null;
+            description?: string | null;
+        };
+        ProjectRef: {
+            id: number;
+            name: string;
+            createdAt?: string | null;
+        };
+        ProjectListResponse: {
+            projects: components["schemas"]["ProjectRef"][];
+        };
         /** @description 项目当前 active corpus 摘要，内嵌于 ProjectDetail。 corpusId 为 Postgres DB integer；rCorpusId 为 R 字符串 ID（调分析端点时透传）。 stale=true 表示当前 included 集合与本 corpus 的 contentHash 不同，需重算。 */
         ActiveCorpusDetail: {
             /** @description Postgres DB corpus.id */
@@ -979,6 +1322,39 @@ export interface components {
             contentHash: string;
             /** @description 当前 included 集合与 corpus 快照不同时为 true */
             stale: boolean;
+            /** @description 构建失败原因；activeCorpus 通常为 null */
+            errorReason?: string | null;
+        };
+        /** @description 项目最近一次 corpus 构建摘要，不按 status 过滤；failed 时带 errorReason。 */
+        LatestCorpusDetail: {
+            /** @description Postgres DB corpus.id */
+            corpusId: number;
+            /** @description R 字符串语料 ID；status != ready 时为 null */
+            rCorpusId?: string | null;
+            /** @enum {string} */
+            status: "parsing" | "ready" | "failed";
+            documentCount?: number | null;
+            /** @description included 集合指纹（sha256） */
+            contentHash: string;
+            /** @description 构建失败原因；仅 failed 时通常非空 */
+            errorReason?: string | null;
+            /** Format: date-time */
+            createdAt?: string | null;
+        };
+        /** @description 项目详情；activeCorpus 保持最新 ready 语义，latestCorpus 暴露最近一次构建状态。 */
+        ProjectDetail: {
+            id: number;
+            name: string;
+            researchQuestion?: string | null;
+            description?: string | null;
+            paperCount: number;
+            includedCount: number;
+            /** @description 可用于综述生成的全文篇数：included 文献中，存在 sha256 且 markdown_path 可读非空的文献数。 */
+            readableFulltextCount: number;
+            /** @description 最新 ready corpus；无 ready corpus 时为 null */
+            activeCorpus?: components["schemas"]["ActiveCorpusDetail"] | null;
+            /** @description 最近一条 corpus，不过滤 status；失败构建也会返回 */
+            latestCorpus?: components["schemas"]["LatestCorpusDetail"] | null;
         };
         /** @description POST /projects/{pid}/corpus/materialize 响应体 */
         CorpusMaterializeResponse: {
@@ -1365,6 +1741,89 @@ export interface components {
             query: string;
             history?: components["schemas"]["ChatMessage"][];
         };
+        AiPingResult: {
+            ok: boolean;
+            model: string;
+            baseUrl: string;
+            content: string;
+        };
+        ImageSettingsPayload: {
+            baseUrl?: string | null;
+            model?: string | null;
+            size?: string | null;
+        };
+        ImagePingResult: {
+            ok: boolean;
+            model: string;
+            baseUrl: string;
+            size: string;
+            detail?: string | null;
+        };
+        /** @enum {string} */
+        AiJobStatus: "queued" | "running" | "done" | "failed" | "cancelled";
+        /** @enum {string} */
+        RunStatus: "queued" | "running" | "awaiting_confirmation" | "paused" | "done" | "failed" | "cancelled";
+        /**
+         * @description 通用 POST /ai/jobs 可创建的 kind（gap_discover/gap_verify 走 research 专用端点）
+         * @enum {string}
+         */
+        AiJobCreatableKind: "review" | "chat" | "summary" | "translate" | "rewrite" | "infographic_prompt" | "infographic_image";
+        /**
+         * @description 已持久化/可列出的 kind 全集
+         * @enum {string}
+         */
+        AiJobKind: "review" | "chat" | "summary" | "translate" | "rewrite" | "infographic_prompt" | "infographic_image" | "gap_discover" | "gap_verify";
+        AiJobCreateRequest: {
+            kind: components["schemas"]["AiJobCreatableKind"];
+            corpusId?: string | null;
+            type?: string | null;
+            topic?: string | null;
+            query?: string | null;
+            history?: {
+                [key: string]: unknown;
+            }[];
+            text?: string | null;
+            /** @enum {string|null} */
+            direction?: "en2zh" | "zh2en" | null;
+            action?: string | null;
+            style?: string | null;
+            imagePrompt?: string | null;
+        };
+        AiJobEvent: {
+            event?: string;
+            data?: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        AiJobItem: {
+            id: number;
+            projectId: number;
+            corpusId?: string | null;
+            kind: components["schemas"]["AiJobKind"];
+            status: components["schemas"]["AiJobStatus"];
+            request?: {
+                [key: string]: unknown;
+            } | null;
+            /** @default  */
+            resultText: string;
+            annotatedText?: string | null;
+            summary?: {
+                [key: string]: unknown;
+            } | null;
+            provenanceMap?: {
+                [key: string]: unknown;
+            } | null;
+            events?: components["schemas"]["AiJobEvent"][];
+            error?: string | null;
+            createdAt?: string | null;
+            updatedAt?: string | null;
+            completedAt?: string | null;
+        };
+        AiJobListResponse: {
+            jobs: components["schemas"]["AiJobItem"][];
+        };
         CiteResult: {
             /** @constant */
             schemaVersion: 1;
@@ -1457,6 +1916,80 @@ export interface components {
             /** @description 所有成功入库的 paper DB id（含 imported + skipped 两类） */
             paperIds: number[];
         };
+        AgentRunRequest: {
+            prompt: string;
+            /** @default false */
+            autoConfirm: boolean;
+        };
+        ConfirmRequest: {
+            toolCallId: string;
+            /** @enum {string} */
+            decision: "approve" | "reject";
+        };
+        RunControlResponse: {
+            status: components["schemas"]["RunStatus"];
+        };
+        AgentRunRef: {
+            runId: number;
+            projectId: number;
+            status: components["schemas"]["RunStatus"];
+        };
+        AgentRunListResponse: {
+            runs: components["schemas"]["AgentRunRef"][];
+        };
+        RunDetail: {
+            runId: number;
+            status: components["schemas"]["RunStatus"];
+            roundsLog?: unknown[];
+            finalOutput?: string | null;
+            evidenceRefs?: unknown[] | null;
+        };
+        RunLogManifest: {
+            event_count: number;
+            tool_invocation_count: number;
+            evidence_count: number;
+            fabricated_count: number;
+            chain_head: string;
+            content_sha256: string;
+        };
+        RunLog: {
+            schema_version: string;
+            manifest: components["schemas"]["RunLogManifest"];
+            run?: {
+                [key: string]: unknown;
+            };
+        } & {
+            [key: string]: unknown;
+        };
+        RunGroundingManifest: {
+            eventCount: number;
+            toolInvocationCount: number;
+            evidenceCount: number;
+            fabricatedCount: number;
+            chainHead: string;
+            contentSha256: string;
+        };
+        RunGroundingMetrics: {
+            groundingAccuracy: number | null;
+            provenanceHitRate: number | null;
+            zeroFabricationRate: number | null;
+            insufficientEvidence: boolean;
+            scoreable: boolean;
+            evidenceCount: number;
+            fabricatedCount: number;
+            greenCount: number;
+            yellowCount: number;
+        };
+        RunGroundingSummary: {
+            runId: number;
+            status: string;
+            modelUsed: string;
+            createdAt: string | null;
+            manifest: components["schemas"]["RunGroundingManifest"];
+            metrics: components["schemas"]["RunGroundingMetrics"];
+            corpusHashCount: number;
+            verifyHint: string;
+        };
         ArtifactItem: {
             id: number;
             projectId: number;
@@ -1532,7 +2065,89 @@ export interface components {
             /** @description 是否已有结构化抽取结果（paper_extraction 表中存在对应行） */
             hasExtraction: boolean;
         };
+        ProjectPaperListResponse: {
+            papers: components["schemas"]["ProjectPaperItem"][];
+        };
+        InclusionPatchRequest: {
+            /** @enum {string} */
+            inclusionStatus: "candidate" | "included" | "excluded" | "maybe";
+            exclusionReason?: string | null;
+            screeningScore?: number | null;
+        };
+        PaperMarkdown: {
+            available: boolean;
+            markdown: string;
+            length: number;
+            truncated: boolean;
+            sha256: string | null;
+        };
+        StructureBlock: {
+            block_idx: number;
+            /** @enum {string} */
+            type: "text" | "title" | "table" | "image";
+            text_level: number | null;
+            page_no: number;
+            md_line_start: number | null;
+            md_line_end: number | null;
+            bbox: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            section_title: string;
+            text_preview: string;
+        };
+        StructureCell: {
+            row: number;
+            col: number;
+            text: string;
+        };
+        StructureTable: {
+            table_idx: number;
+            block_idx: number;
+            page_no: number;
+            bbox: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            n_rows: number;
+            n_cols: number;
+            grid: string[][];
+            caption: string;
+        };
+        /** @description 文档结构化溯源数据；字段与 services/agent/app/schemas.py 的 StructureResponse 一致。 */
+        StructureResponse: {
+            paper_id: number;
+            attachment_id: number;
+            page_count: number;
+            blocks: components["schemas"]["StructureBlock"][];
+            tables: components["schemas"]["StructureTable"][];
+            has_bbox: boolean;
+            markdown_sha256: string | null;
+            schema_version?: number;
+            source_pdf_sha256?: string | null;
+            bbox_coord_space?: string | null;
+            page_width?: number | null;
+            page_height?: number | null;
+            rotation?: number | null;
+        };
+        QualityIssue: {
+            paper_id: number;
+            type: string;
+            detail: string;
+        };
+        QualityReport: {
+            total: number;
+            by_type: {
+                [key: string]: number;
+            };
+            issues: components["schemas"]["QualityIssue"][];
+        };
         FromSearchCandidate: {
+            candidateId?: string | null;
             title: string;
             doi?: string | null;
             authors?: string[];
@@ -1559,13 +2174,22 @@ export interface components {
             /** @enum {string} */
             defaultStatus?: "candidate" | "included";
         };
+        FromSearchFailedItem: {
+            /** @description 前端候选 ID，用于重选失败项 */
+            candidateId?: string | null;
+            title: string;
+            /** @description 单条入库失败原因 */
+            reason: string;
+        };
         FromSearchResult: {
             /** @description 本次新导入（首次关联到项目）的文献数 */
             imported: number;
             /** @description 幂等跳过（paper 已存在于项目）的文献数 */
             skipped: number;
-            /** @description 处理失败的候选数（单条异常，不影响其他候选） */
-            failed: number;
+            /** @description 处理失败的候选明细（单条异常，不影响其他候选） */
+            failed: components["schemas"]["FromSearchFailedItem"][];
+            /** @description 处理失败的候选数，等于 failed.length */
+            failedCount: number;
             /** @description 所有成功入库的 paper DB id（含 imported + skipped 两类） */
             paperIds: number[];
         };
@@ -1596,6 +2220,13 @@ export interface components {
         };
         SciverseMetaSearchResult: {
             candidates: components["schemas"]["FromSearchCandidate"][];
+            /**
+             * @description 上游限流/超时时为 true，表示仅返回部分结果
+             * @default false
+             */
+            partial: boolean;
+            /** @description partial=true 时的上游原因说明 */
+            partialReason?: string | null;
             totalCount?: number | null;
             page?: number | null;
             pageSize?: number | null;
@@ -1829,10 +2460,10 @@ export interface components {
         ScratchpadState: {
             run_id: string;
             /**
-             * @description 本 run 生命周期（轮询停止信号，codex B1-P1）。running 时前端持续轮询； completed/failed 时前端停轮询。fail-loud：失败显式 failed，绝不静默成 completed。
+             * @description 本 run 生命周期（轮询停止信号，codex B1-P1）。running 时前端持续轮询； done/failed 时前端停轮询。fail-loud：失败显式 failed，绝不静默成 done。
              * @enum {string}
              */
-            run_status: "running" | "completed" | "failed";
+            run_status: "running" | "done" | "failed";
             entries: components["schemas"]["GapCandidate"][];
             /** @description ISO8601 更新时间 */
             updated_at: string;
@@ -2028,6 +2659,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 项目列表 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 创建成功 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRef"];
+                };
+            };
+            /** @description 参数校验失败 */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 项目 DB id（整数） */
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 项目详情 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectDetail"];
+                };
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
                 };
             };
         };
@@ -2775,6 +3491,37 @@ export interface operations {
             };
         };
     };
+    getProjectPapers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 项目文献列表 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPaperListResponse"];
+                };
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
     getPaperDetail: {
         parameters: {
             query?: never;
@@ -2797,6 +3544,106 @@ export interface operations {
                 };
             };
             /** @description 项目或文献不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    patchInclusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: number;
+                paperId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InclusionPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description 更新后的项目文献条目 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPaperItem"];
+                };
+            };
+            /** @description 项目或文献不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    getPaperMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: number;
+                paperId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Markdown 全文预览；不可用时 available=false */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaperMarkdown"];
+                };
+            };
+            /** @description 项目或文献不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    getStructure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: number;
+                paperId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 文档结构化溯源数据 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StructureResponse"];
+                };
+            };
+            /** @description 项目/文献不存在，或文献无结构化解析数据 */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -3117,6 +3964,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    getQualityReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                projectId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 项目质检报告 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityReport"];
                 };
             };
         };
@@ -3480,6 +4349,470 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    pingLlm: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-LLM-Key"?: string;
+                "X-LLM-Base-URL"?: string;
+                "X-LLM-Model"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 连通性测试结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiPingResult"];
+                };
+            };
+            /** @description 未提供 API key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+            /** @description LLM 请求失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+        };
+    };
+    pingImage: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Image-Key"?: string;
+                "X-Image-Base-URL"?: string;
+                "X-Image-Model"?: string;
+                "X-Image-Size"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageSettingsPayload"];
+            };
+        };
+        responses: {
+            /** @description 生图连通性测试结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImagePingResult"];
+                };
+            };
+            /** @description 未提供 API key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+            /** @description 生图请求失败 */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrValidation"];
+                };
+            };
+        };
+    };
+    listAiJobs: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["AiJobKind"];
+                corpusId?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI 任务列表 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobListResponse"];
+                };
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    createAiJob: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-LLM-Key"?: string;
+                "X-LLM-Base-URL"?: string;
+                "X-LLM-Model"?: string;
+            };
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiJobCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description 已创建任务 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobItem"];
+                };
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    getAiJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI 任务详情 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiJobItem"];
+                };
+            };
+            /** @description 任务不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    listRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent Run 列表 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunListResponse"];
+                };
+            };
+        };
+    };
+    createRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-LLM-Key"?: string;
+                "X-LLM-Base-URL"?: string;
+                "X-LLM-Model"?: string;
+            };
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunRequest"];
+            };
+        };
+        responses: {
+            /** @description 已启动 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunRef"];
+                };
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    getRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent Run 详情 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Run 不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    streamAgentRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Last-Event-ID"?: number;
+            };
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description SSE 事件流 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            /** @description Run 不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrNotFound"];
+                };
+            };
+        };
+    };
+    confirmRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description 控制结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunControlResponse"];
+                };
+            };
+        };
+    };
+    pauseRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 控制结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunControlResponse"];
+                };
+            };
+        };
+    };
+    resumeRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 控制结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunControlResponse"];
+                };
+            };
+        };
+    };
+    cancelRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 控制结果 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunControlResponse"];
+                };
+            };
+        };
+    };
+    getRunLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description RunLog JSON */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunLog"];
+                };
+            };
+        };
+    };
+    getGrounding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: number;
+                rid: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description grounding 摘要 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunGroundingSummary"];
                 };
             };
         };

@@ -11,6 +11,9 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("c1");
 
 // ---- mock aiScreen（仅替换该导出，其余 client 保持真实）----
 const { aiScreenSpy } = vi.hoisted(() => ({ aiScreenSpy: vi.fn() }));
@@ -45,7 +48,7 @@ function renderPanel() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ScreenPanel projectId="7" corpusId="c1" />
+      <ScreenPanel projectId="7" corpusId={CID} />
     </QueryClientProvider>,
   );
 }

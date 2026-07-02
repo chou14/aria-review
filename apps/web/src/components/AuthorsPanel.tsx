@@ -7,6 +7,7 @@
 import { useMemo, useRef } from "react";
 import type { EChartsOption } from "echarts";
 import { useAuthorProduction, useAuthors } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ChartCard, DataTable, EChart, ExportMenu, envelopeChartProps } from "./viz";
 import type { DataTableColumn, EChartHandle, Envelope } from "./viz";
 import { buildAuthorHeatmapOption } from "./viz/advancedCharts";
@@ -108,7 +109,7 @@ function buildLotkaOption(beta: number, dist: LotkaPoint[]): EChartsOption {
   };
 }
 
-export function AuthorsPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function AuthorsPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useAuthors(projectId, corpusId);
   const err = isError ? error : undefined;
   const chartRef = useRef<EChartHandle>(null);

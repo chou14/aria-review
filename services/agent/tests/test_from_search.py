@@ -8,7 +8,7 @@
   5. containerTitle 写入 DB（paper.container_title 与候选一致）
   6. candidates 超过 100 条 → 422（FastAPI 校验）
   7. 字段校验：doi/source/containerTitle/url/abstract/openalexId/year 超长/越界 → 422
-  8. 单条候选处理失败（模拟 add_paper 抛错）→ 不影响其他、failed+1（逐候选隔离）
+  8. 单条候选处理失败（模拟 add_paper 抛错）→ 不影响其他、failed 明细+1（逐候选隔离）
   9. B: 已关联候选再次 included 入库 → inclusion_status 升级为 included
  10. 事务隔离：某条候选触发 IntegrityError → session rollback 后续候选仍成功入库
 """
@@ -407,12 +407,12 @@ async def test_from_search_field_validation_authors_max_items(aclient):
 
 
 # ---------------------------------------------------------------------------
-# 测试 8: 逐候选隔离——单条抛错不影响其他，failed+1
+# 测试 8: 逐候选隔离——单条抛错不影响其他，failed 明细+1
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_from_search_per_candidate_isolation(aclient, monkeypatch):
-    """单条候选 add_paper 抛 RuntimeError → failed+1；其他候选正常入库（imported）。"""
+    """单条候选 add_paper 抛 RuntimeError → failed 明细+1；其他候选正常入库。"""
     c, factory = aclient
     pid = await _create_project(factory, "Isolation Test")
 
@@ -432,8 +432,8 @@ async def test_from_search_per_candidate_isolation(aclient, monkeypatch):
 
     payload = {
         "candidates": [
-            {"title": "Fail Paper", "doi": "10.1/fail"},
-            {"title": "OK Paper", "doi": "10.1/ok"},
+            {"candidateId": "fail-1", "title": "Fail Paper", "doi": "10.1/fail"},
+            {"candidateId": "ok-1", "title": "OK Paper", "doi": "10.1/ok"},
         ],
         "defaultStatus": "candidate",
     }
@@ -441,7 +441,12 @@ async def test_from_search_per_candidate_isolation(aclient, monkeypatch):
     r = await c.post(f"/projects/{pid}/papers/from-search", json=payload)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["failed"] == 1
+    assert body["failedCount"] == 1
+    assert body["failed"] == [{
+        "candidateId": "fail-1",
+        "title": "Fail Paper",
+        "reason": "模拟 DB 500",
+    }]
     assert body["imported"] == 1
     assert len(body["paperIds"]) == 1
 
@@ -541,8 +546,8 @@ async def test_from_search_integrity_error_isolation(aclient, monkeypatch):
 
     payload = {
         "candidates": [
-            {"title": "Integrity Fail Paper", "doi": "10.1/integrity_fail"},
-            {"title": "OK After Rollback", "doi": "10.1/ok_after_rollback"},
+            {"candidateId": "integrity-1", "title": "Integrity Fail Paper", "doi": "10.1/integrity_fail"},
+            {"candidateId": "ok-after-rollback", "title": "OK After Rollback", "doi": "10.1/ok_after_rollback"},
         ],
         "defaultStatus": "candidate",
     }
@@ -552,7 +557,11 @@ async def test_from_search_integrity_error_isolation(aclient, monkeypatch):
     body = r.json()
 
     # ① 触发 IntegrityError 的候选计入 failed
-    assert body["failed"] == 1, f"期望 failed=1，实际={body['failed']}"
+    assert body["failedCount"] == 1, f"期望 failedCount=1，实际={body['failedCount']}"
+    assert body["failed"][0]["candidateId"] == "integrity-1"
+    assert body["failed"][0]["title"] == "Integrity Fail Paper"
+    assert "数据库冲突" in body["failed"][0]["reason"]
+    assert "UNIQUE constraint failed: paper.doi" in body["failed"][0]["reason"]
     # ② rollback 后，后续正常候选仍成功入库（证明隔离有效，而非级联失败）
     assert body["imported"] == 1, (
         f"期望 imported=1（rollback 后隔离有效），实际={body['imported']}。"

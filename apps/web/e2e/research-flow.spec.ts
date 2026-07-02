@@ -1,5 +1,8 @@
 import { test, expect, type Route } from "@playwright/test";
-import {
+import researchFixtures from "../../../packages/contracts/fixtures/research_gap.json" with { type: "json" };
+import type { GapCandidate, GapVerdictResult, ScratchpadState, ValueVerdict } from "../src/types/research";
+
+const {
   gapDraftConcept,
   gapVerifiedMethod,
   gapDraftMethod,
@@ -8,13 +11,21 @@ import {
   verdictResultG5,
   FIXTURE_RUN_ID,
   FIXTURE_VERIFY_RUN_ID,
-} from "../src/api/research.fixtures";
-import type { GapCandidate, ScratchpadState } from "../src/types/research";
+} = researchFixtures as unknown as {
+  gapDraftConcept: GapCandidate;
+  gapVerifiedMethod: GapCandidate;
+  gapDraftMethod: GapCandidate;
+  verdictInconclusiveG5: ValueVerdict;
+  verdictResultG2: GapVerdictResult;
+  verdictResultG5: GapVerdictResult;
+  FIXTURE_RUN_ID: string;
+  FIXTURE_VERIFY_RUN_ID: string;
+};
 
 /**
  * B5 — 研究副驾 HITL 全流程 e2e（discover→scratchpad→verify→verdict→accept）。
  *
- * 非虚绿：fixture 与 vitest 同源 import 自 src/api/research.fixtures（单一真相，禁手抄漂移）。
+ * 非虚绿：fixture 直接 import packages/contracts/fixtures/research_gap.json（前后端单一真源）。
  * 单 dispatcher route 注入 5 个研究 endpoint；g5 走 draft→verified→accepted 状态机模拟
  * verify 异步产出裁决。/dev/research 用固定 pid/cid override，不依赖后端在线。
  */

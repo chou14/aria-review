@@ -32,6 +32,7 @@ from ..harness.events import EventType
 from ..harness.llm import OverrideLLMConfig
 from ..repositories import agent_run as repo
 from ..repositories import project as project_repo
+from ..run_status import is_terminal_run_status, normalize_run_status
 from .confirm import needs_confirmation
 from .context import AgentContext
 from .prompts import AGENT_SYSTEM
@@ -232,7 +233,7 @@ class RunController:
             # （done/failed/cancelled）的 run 绝不能被重新驱动——直接 return，避免重复
             # LLM/工具副作用（应对 resume/confirm/start 在终态被误调用，或与 cancel 的
             # 竞态）。终态事件在该 run 首次到达终态时已发过，此处不重复发。
-            if state.status in ("done", "failed", "cancelled"):
+            if is_terminal_run_status(state.status):
                 logger.info(
                     "[RunController] run %s already terminal (%s), skip drive",
                     run_id, state.status,
@@ -312,7 +313,7 @@ class RunController:
         awaiting_confirmation / paused：循环内已 save_state，**不发任何终态事件**（流保持
         打开，等待 confirm/resume）。done/failed/cancelled：发对应事件 + 清 override。
         """
-        status = state.status
+        status = normalize_run_status(state.status)
         if status == "done":
             await emit({
                 "type": EventType.RUN_COMPLETE,
@@ -409,8 +410,9 @@ class RunController:
             run = await repo.get_run(s, run_id)
             if run is None:
                 raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {run_id} 不存在")
-            if run.status != "running":
-                return run.status
+            status = normalize_run_status(run.status)
+            if status != "running":
+                return status
             self._pause_requested.add(run_id)
             # 无活跃 task（两次驱动之间）→ 端点直接落 paused；有活跃 task 时 _drive 的
             # 协作退出也会落同一状态（幂等，不竞态：单任务串行驱动）。
@@ -436,8 +438,9 @@ class RunController:
             run = await repo.get_run(s, run_id)
             if run is None:
                 raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {run_id} 不存在")
-            if run.status != "paused":
-                return run.status
+            status = normalize_run_status(run.status)
+            if status != "paused":
+                return status
 
         # 等上一段驱动 task 真正结束再重启：pause 退出后 _drive task 可能尚未被 done_callback
         # 从 _tasks 清理（task 已收尾但回调未跑），此时 start() 会因「task 未 done」误判为
@@ -468,8 +471,9 @@ class RunController:
             run = await repo.get_run(s, run_id)
             if run is None:
                 raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {run_id} 不存在")
-            if run.status != "paused":
-                return run.status
+            status = normalize_run_status(run.status)
+            if status != "paused":
+                return status
             state = await repo.get_state(s, run_id)
             if state is not None:
                 state.status = "running"
@@ -500,8 +504,8 @@ class RunController:
             run = await repo.get_run(s, run_id)
             if run is None:
                 raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {run_id} 不存在")
-            if run.status in ("done", "failed", "cancelled"):
-                return run.status
+            if is_terminal_run_status(run.status):
+                return normalize_run_status(run.status)
 
         # 1) 取消活跃 task（若有）。cancel() 仅请求取消；task 实际结束由 _on_done 清理。
         self._pause_requested.discard(run_id)

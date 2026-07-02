@@ -21,6 +21,8 @@ export interface DataTableColumn<T> {
 export interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   rows: T[];
+  /** 稳定行 key；未传时沿用当前页 index，保持旧行为 */
+  getRowKey?: (row: T, index: number) => string | number;
   /** 每页行数，默认 10 */
   pageSize?: number;
   emptyText?: string;
@@ -43,6 +45,7 @@ function compare(a: unknown, b: unknown): number {
 export function DataTable<T extends Record<string, unknown>>({
   columns,
   rows,
+  getRowKey,
   pageSize = 10,
   emptyText = "暂无数据",
   initialSort,
@@ -116,23 +119,27 @@ export function DataTable<T extends Record<string, unknown>>({
           </tr>
         </thead>
         <tbody>
-          {pageRows.map((row, i) => (
-            <tr key={i} className={rowClassName?.(row)}>
-              {columns.map((col) => {
-                const v = row[col.key];
-                const isNum = typeof v === "number";
-                return (
-                  <td
-                    key={col.key}
-                    className={isNum ? "tnum" : undefined}
-                    style={{ textAlign: col.align ?? (isNum ? "right" : "left") }}
-                  >
-                    {col.format ? col.format(v as T[keyof T], row) : (v as ReactNode)}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {pageRows.map((row, i) => {
+            const rowIndex = safePage * size + i;
+            const rowKey = getRowKey ? getRowKey(row, rowIndex) : i;
+            return (
+              <tr key={rowKey} className={rowClassName?.(row)}>
+                {columns.map((col) => {
+                  const v = row[col.key];
+                  const isNum = typeof v === "number";
+                  return (
+                    <td
+                      key={col.key}
+                      className={isNum ? "tnum" : undefined}
+                      style={{ textAlign: col.align ?? (isNum ? "right" : "left") }}
+                    >
+                      {col.format ? col.format(v as T[keyof T], row) : (v as ReactNode)}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 

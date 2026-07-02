@@ -23,7 +23,10 @@ import logging
 from typing import Any
 
 from ..sciverse import SciverseClient, normalize_meta_result, sciverse_config
+from ..config import settings
+from ..errors import ApiError
 from ..harness.tools import BaseTool, ToolResult
+from ..search_limits import SEARCH_LIMIT_ERROR_MESSAGE, SEARCH_LIMIT_MAX
 
 logger = logging.getLogger("agent.tools.search")
 
@@ -38,21 +41,28 @@ def _sciverse_configured() -> bool:
 
 
 def _auto_provider(query: str) -> str:
-    """provider 未显式指定时按 query 语言路由（benchmark 结论：中文/混合走 Sciverse 优、纯英文走 OpenAlex 优）。
+    """provider 未显式指定时的默认数据源：Sciverse 优先。
 
-    含中文(CJK)字符 **且 Sciverse 已配置** → sciverse（中文覆盖与语义检索更好，且直连不经 R）；
-    否则 → openalex（英文相关性排序更稳）。配置感知：Sciverse 未配置时中文也回退 openalex，
-    避免原本可用的中文检索因缺 token 直接失败（codex P1）。
+    Sciverse 已配置 → sciverse（默认数据源，中英文覆盖与语义检索均更好，且直连不经 R）；
+    Sciverse 未配置 → openalex（配置感知 fallback，避免因缺 token 直接失败，codex P1）。
     """
-    has_cjk = any("一" <= ch <= "鿿" for ch in query)  # CJK 统一表意文字 U+4E00–U+9FFF
-    if has_cjk and _sciverse_configured():
+    if _sciverse_configured():
         return "sciverse"
     return "openalex"
 
 # 候选枚举：summary 需逐条暴露 candidate_id + 标题，LLM 才能逐条判相关性并按 ID 自筛导入
 # （旧版只预览前 5 条标题且无 ID，导致 prompts.py 要求的「只传相关 candidate_ids」无法落地）。
 _SUMMARY_TITLE_CAP = 90    # 单条标题截断长度（足够判主题相关性，又约束字符预算）
-_SUMMARY_CARD_CAP = 150    # 最多枚举条数（配合 tool_result_max_chars=12000，覆盖 limit≤100/120 全列）
+_SUMMARY_CARD_CAP = 150    # summary 最多枚举条数；检索上限独立由 SEARCH_LIMIT_MAX 约束
+
+
+def _r_unavailable_message(exc: Exception) -> str:
+    reason = str(exc).strip() or exc.__class__.__name__
+    return (
+        f"R 分析服务不可达（地址: {settings.r_analysis_url}；原因: {reason}）。"
+        "OpenAlex 检索依赖 R 分析服务，请先运行 `docker compose --profile analysis up -d` "
+        "启动 R 服务，并检查端口和网络连通性。"
+    )
 
 
 def _format_candidate_cards(candidates: list[dict]) -> tuple[str, int]:
@@ -74,14 +84,26 @@ def _format_candidate_cards(candidates: list[dict]) -> tuple[str, int]:
     return "\n".join(lines), hidden
 
 
-def _build_search_summary(provider_label: str, total: int, query: str, candidates: list[dict]) -> str:
+def _build_search_summary(
+    provider_label: str,
+    total: int,
+    query: str,
+    candidates: list[dict],
+    *,
+    partial: bool = False,
+    partial_reason: str | None = None,
+) -> str:
     """检索成功摘要：先一句概览（供 UI 200 字预览），再逐条候选清单（供 LLM 自筛）。"""
     cards, hidden = _format_candidate_cards(candidates)
+    partial_note = ""
+    if partial:
+        reason = f"：{partial_reason}" if partial_reason else ""
+        partial_note = f"（注意：本次检索只返回部分结果{reason}）"
     more_note = (
         f"\n（还有 {hidden} 篇未列出，若噪声较多请收紧检索式后重检）" if hidden > 0 else ""
     )
     return (
-        f"{provider_label}检索到 {total} 篇候选文献（关键词：{query}）。已生成候选卡。"
+        f"{provider_label}检索到 {total} 篇候选文献（关键词：{query}）。{partial_note}已生成候选卡。"
         f"下面逐条列出 candidate_id 与标题，请逐条判断是否真正切题，"
         f"仅用相关候选的 candidate_id 调用 project__import_search_results 导入：\n"
         f"{cards}{more_note}"
@@ -105,6 +127,25 @@ def _candidate_id(cand: dict) -> str:
     return hashlib.sha256(title.encode()).hexdigest()[:16]
 
 
+def _parse_limit(value: Any) -> tuple[int | None, str | None]:
+    """解析检索上限；超出契约时显式失败，不再静默截断。"""
+    if value in (None, ""):
+        return _DEFAULT_LIMIT, None
+    if isinstance(value, bool):
+        return None, f"limit 必须是 1-{SEARCH_LIMIT_MAX} 的整数"
+    try:
+        if isinstance(value, float) and not value.is_integer():
+            return None, f"limit 必须是 1-{SEARCH_LIMIT_MAX} 的整数"
+        limit = int(value)
+    except (TypeError, ValueError):
+        return None, f"limit 必须是 1-{SEARCH_LIMIT_MAX} 的整数"
+    if limit < 1:
+        return None, f"limit 必须是 1-{SEARCH_LIMIT_MAX} 的整数"
+    if limit > SEARCH_LIMIT_MAX:
+        return None, f"{SEARCH_LIMIT_ERROR_MESSAGE}，请调小 limit 后重试"
+    return limit, None
+
+
 class SearchTool(BaseTool):
     """按主题/关键词检索文献（调 R /search/openalex），只返回候选，不建库。"""
 
@@ -112,7 +153,7 @@ class SearchTool(BaseTool):
     tool_name = "Search Tool"
     description = (
         "按主题/关键词检索文献，返回候选卡列表（不建库）；支持 OpenAlex 与 Sciverse 两个数据源"
-        "（provider 参数，中文/混合主题走 sciverse、纯英文走 openalex，省略则自动路由）；"
+        "（provider 参数，默认 sciverse，省略则自动路由到 sciverse；未配置 sciverse 时回退 openalex）；"
         "检索得到候选后，告知用户可在候选卡中选择加入文献库或纳入"
     )
     actions = ["topic"]
@@ -128,8 +169,10 @@ class SearchTool(BaseTool):
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "返回候选数量上限，默认 50；系统综述/赛题验证建议 50-100",
+                    "description": f"返回候选数量上限，默认 50；最大 {SEARCH_LIMIT_MAX}，超出将显式报错",
                     "default": _DEFAULT_LIMIT,
+                    "minimum": 1,
+                    "maximum": SEARCH_LIMIT_MAX,
                 },
                 "since": {
                     "type": "string",
@@ -142,9 +185,9 @@ class SearchTool(BaseTool):
                     "type": "string",
                     "enum": ["openalex", "sciverse"],
                     "description": (
-                        "检索数据源。中文/中英混合/自然语言问句/较长描述 → 'sciverse'（中文覆盖与语义更好）；"
-                        "纯英文术语/缩写（GAN/CNN/ESG 等）→ 'openalex'（英文相关性排序更稳）。"
-                        "省略则按主题是否含中文自动路由。"
+                        "检索数据源，默认 'sciverse'（中英文覆盖与语义检索均更好）；"
+                        "省略则自动使用 sciverse（未配置时回退 'openalex'）。"
+                        "如需强制走 OpenAlex（如需要 OpenAlex 特有的英文相关性排序），显式传 'openalex'。"
                     ),
                 },
             },
@@ -176,12 +219,12 @@ class SearchTool(BaseTool):
         if not query:
             return self._fail(action, "query 是必填字段，请提供检索关键词")
 
-        limit = int(params.get("limit") or _DEFAULT_LIMIT)
-        # clamp ≤500（系统综述/赛题需大批量检索；from-search 入库端 candidates 同步设
-        # max_length=500 保持一致，杜绝"检索 N 但入库 422"）
-        limit = min(500, max(1, limit))
+        limit, limit_error = _parse_limit(params.get("limit"))
+        if limit_error:
+            return self._fail(action, limit_error)
+        assert limit is not None
         since = (params.get("since") or _DEFAULT_SINCE).strip() or _DEFAULT_SINCE
-        # provider 路由：显式指定则尊重；省略则按 query 语言自动路由（含中文→sciverse, 否则→openalex）。
+        # provider 路由：显式指定则尊重；省略则默认 sciverse（未配置 sciverse 时回退 openalex）。
         provider = (params.get("provider") or "").strip().lower() or _auto_provider(query)
 
         if provider == "sciverse":
@@ -195,7 +238,7 @@ class SearchTool(BaseTool):
             status_code, body = await self._r.search_openalex(query, limit, since)
         except Exception as exc:
             logger.exception("[SearchTool] search_openalex 调用异常")
-            return self._fail(action, f"检索服务不可达: {exc}")
+            return self._fail(action, _r_unavailable_message(exc))
 
         # R 失败
         if status_code >= 400:
@@ -213,10 +256,41 @@ class SearchTool(BaseTool):
             logger.warning("[SearchTool] R 返回 %d: %s", status_code, err_str)
             return self._fail(action, err_str)
 
-        raw_results: list[dict] = (body or {}).get("results", []) or []
+        r_body = body or {}
+        partial = bool(r_body.get("partial"))
+        partial_reason = str(r_body.get("partialReason") or "").strip() or None
+        raw_results: list[dict] = r_body.get("results", []) or []
 
         # 空结果 → 友好提示
         if not raw_results:
+            if partial:
+                if emit is not None:
+                    try:
+                        await emit({
+                            "type": "search_results",
+                            "candidates": [],
+                            "query": query,
+                            "partial": True,
+                            "partialReason": partial_reason,
+                        })
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[SearchTool] emit partial search_results 失败（不影响结果）: %s", exc)
+                summary = (
+                    f"检索只返回部分结果，但暂未拿到候选文献（关键词：{query}）。"
+                    f"原因：{partial_reason or '上游限流或超时'}。请稍后重试或收紧检索式。"
+                )
+                return self._ok(
+                    action,
+                    data=[{
+                        "candidates": [],
+                        "total": 0,
+                        "query": query,
+                        "partial": True,
+                        "partialReason": partial_reason,
+                    }],
+                    source="api",
+                    summary=summary,
+                )
             return self._empty(
                 action,
                 f"未找到与\"{query}\"相关的文献（共 0 篇），建议调整关键词或放宽年份范围",
@@ -263,16 +337,31 @@ class SearchTool(BaseTool):
                     "type": "search_results",
                     "candidates": candidates,
                     "query": query,
+                    "partial": partial,
+                    "partialReason": partial_reason,
                 })
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[SearchTool] emit search_results 失败（不影响结果）: %s", exc)
 
         total = len(candidates)
-        summary = _build_search_summary("", total, query, candidates)
+        summary = _build_search_summary(
+            "",
+            total,
+            query,
+            candidates,
+            partial=partial,
+            partial_reason=partial_reason,
+        )
 
         return self._ok(
             action,
-            data=[{"candidates": candidates, "total": total, "query": query}],
+            data=[{
+                "candidates": candidates,
+                "total": total,
+                "query": query,
+                "partial": partial,
+                "partialReason": partial_reason,
+            }],
             source="api",
             summary=summary,
         )
@@ -310,11 +399,17 @@ class SearchTool(BaseTool):
                     "unique_id",
                 ],
             )
+        except ApiError as exc:
+            logger.warning("[SearchTool] sciverse meta-search 失败 [%s]: %s", exc.code, exc.message)
+            return self._fail(action, exc.message)
         except Exception as exc:
             logger.exception("[SearchTool] sciverse meta-search 调用异常")
-            return self._fail(action, f"Sciverse 检索服务不可达或未配置: {exc}")
+            return self._fail(action, f"Sciverse 检索服务异常: {exc}")
 
-        raw_results: list[dict] = (body or {}).get("results", []) or []
+        sciverse_body = body or {}
+        partial = bool(sciverse_body.get("partial"))
+        partial_reason = str(sciverse_body.get("partialReason") or "").strip() or None
+        raw_results: list[dict] = sciverse_body.get("results", []) or []
         candidates = [
             normalize_meta_result(row)
             for row in raw_results
@@ -357,15 +452,31 @@ class SearchTool(BaseTool):
                     "candidates": candidates,
                     "query": query,
                     "provider": "sciverse",
+                    "partial": partial,
+                    "partialReason": partial_reason,
                 })
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[SearchTool] emit sciverse search_results 失败: %s", exc)
 
         total = len(candidates)
-        summary = _build_search_summary("Sciverse ", total, query, candidates)
+        summary = _build_search_summary(
+            "Sciverse ",
+            total,
+            query,
+            candidates,
+            partial=partial,
+            partial_reason=partial_reason,
+        )
         return self._ok(
             action,
-            data=[{"candidates": candidates, "total": total, "query": query, "provider": "sciverse"}],
+            data=[{
+                "candidates": candidates,
+                "total": total,
+                "query": query,
+                "provider": "sciverse",
+                "partial": partial,
+                "partialReason": partial_reason,
+            }],
             source="api",
             summary=summary,
         )

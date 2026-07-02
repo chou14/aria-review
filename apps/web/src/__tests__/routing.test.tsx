@@ -12,12 +12,15 @@
  *       mock useHealth 返回 undefined（避免真实网络请求）。
  */
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi, describe, it, expect } from "vitest";
+import { asDbCorpusId, asRCorpusId } from "../api/corpusIds";
 
 // ---- mock agentHooks ----
 vi.mock("../api/agentHooks", () => ({
+  getPanelRCorpusId: (activeCorpus: { rCorpusId?: string | null } | null | undefined) =>
+    (activeCorpus?.rCorpusId ?? "") as ReturnType<typeof asRCorpusId>,
   useProjects: () => ({ data: { projects: [] }, isLoading: false, error: null }),
   useProject: () => ({
     data: { name: "测试项目", paperCount: 0, includedCount: 0, researchQuestion: null, activeCorpus: null },
@@ -63,16 +66,19 @@ vi.mock("../api/hooks", () => ({
 
 // Import components after mock declarations
 import { ProjectsPage } from "../pages/ProjectsPage";
-import { PaperDetailPage } from "../pages/PaperDetailPage";
 import { ChatWorkbench } from "../pages/ChatWorkbench";
 import { LibraryView } from "../pages/LibraryView";
-import { LibraryIndex } from "../pages/LibraryIndex";
 import { AnalysisView } from "../pages/AnalysisView";
 import { OutputView } from "../pages/OutputView";
 import { SettingsPage } from "../pages/SettingsPage";
 import { ProjectShell } from "../components/shell/ProjectShell";
 import { ProjectNav } from "../components/shell/ProjectNav";
 import { AnalysisSidebar, ANALYSIS_GROUPS } from "../components/AnalysisSidebar";
+
+function PapersRedirect() {
+  const { pid, paperId } = useParams<{ pid: string; paperId?: string }>();
+  return <Navigate to={`/projects/${pid}/library${paperId ? `/${paperId}` : ""}`} replace />;
+}
 
 // Helper: wrap with QueryClientProvider + MemoryRouter at given path
 function renderAt(path: string) {
@@ -85,9 +91,10 @@ function renderAt(path: string) {
           <Route path="/projects/:pid" element={<ProjectShell />}>
             <Route index element={<ChatWorkbench />} />
             <Route path="library" element={<LibraryView />}>
-              <Route index element={<LibraryIndex />} />
-              <Route path=":paperId" element={<PaperDetailPage />} />
+              <Route path=":paperId" element={null} />
             </Route>
+            <Route path="papers" element={<PapersRedirect />} />
+            <Route path="papers/:paperId" element={<PapersRedirect />} />
             {/* M3: analysis/:view 路由 */}
             <Route path="analysis">
               <Route index element={<Navigate to="overview" replace />} />
@@ -129,8 +136,13 @@ describe("M0/M3 路由骨架", () => {
     expect(screen.getByLabelText("Agent 指令输入")).toBeInTheDocument();
   });
 
-  it("/projects/:pid/library 渲染 LibraryIndex — 无文献时显示提示", () => {
+  it("/projects/:pid/library 渲染 LibraryView — 无文献时显示提示", () => {
     renderAt("/projects/1/library");
+    expect(screen.getByText(/暂无文献/)).toBeInTheDocument();
+  });
+
+  it("/projects/:pid/papers 重定向到文献库", () => {
+    renderAt("/projects/1/papers");
     expect(screen.getByText(/暂无文献/)).toBeInTheDocument();
   });
 
@@ -192,7 +204,14 @@ describe("AnalysisSidebar 组件", () => {
   function renderSidebar(activeView = "overview", corpusReady = false) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const activeCorpus = corpusReady
-      ? { corpusId: 1, rCorpusId: "r_test", status: "ready" as const, stale: false, documentCount: 10, contentHash: "abc123" }
+      ? {
+          corpusId: asDbCorpusId(1),
+          rCorpusId: asRCorpusId("r_test"),
+          status: "ready" as const,
+          stale: false,
+          documentCount: 10,
+          contentHash: "abc123",
+        }
       : null;
     return render(
       <QueryClientProvider client={qc}>
@@ -237,10 +256,9 @@ describe("AnalysisSidebar 组件", () => {
 
   it("无语料时需要 corpus 的分组显示(未就绪)标记", () => {
     renderSidebar("overview", false);
-    // 统计概览/知识结构/AI工具台 需 corpus，置灰
+    // 统计概览/知识结构全组需 corpus；AI 工具台内 review 可用，不整组置灰。
     const badges = screen.getAllByText("(未就绪)");
-    // 3 个需要语料的分组（统计概览/知识结构/AI工具台）
-    expect(badges.length).toBe(3);
+    expect(badges.length).toBe(2);
   });
 
   it("ANALYSIS_GROUPS 共含 13 个视图", () => {

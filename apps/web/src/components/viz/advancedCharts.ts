@@ -28,6 +28,11 @@ export type KeywordTrendData = {
   terms: string[];
   cells: KeywordTrendCell[];
 };
+export type KeywordTrendInsufficientData = {
+  reason: "computed_empty";
+  message: string;
+  howto: string;
+};
 
 // A5 类型 (镜像契约 data 形状)
 export type ThematicCluster = { label: string; centrality: number; density: number; freq: number };
@@ -115,12 +120,25 @@ const RIVER_PALETTE = [
   "#bf9b54", "#6b6155", "#a8523b", "#48606b", "#c2a062",
 ];
 
+/** 关键词演变图的可渲染性检查；返回值直接映射到 InsufficientData。 */
+export function getKeywordTrendInsufficientData(d: KeywordTrendData): KeywordTrendInsufficientData | null {
+  if (d.years.length > 0) return null;
+  return {
+    reason: "computed_empty",
+    message: "关键词历时演变缺少年份数据，无法计算时间轴。",
+    howto: "请导入含年份(PY)和关键词(DE)的题录，或纳入更多文献后重试。",
+  };
+}
+
 /**
  * 关键词历时演变 themeRiver option。
  * data 项形如 [time, value, name]; time 用年份字符串。
  * terms 已按全局总频次降序; 取调色板循环。
  */
 export function buildKeywordRiverOption(d: KeywordTrendData): EChartsOption {
+  if (getKeywordTrendInsufficientData(d)) {
+    return { series: [] };
+  }
   const data: [string, number, string][] = d.cells.map((c) => [
     String(c.year),
     c.freq,

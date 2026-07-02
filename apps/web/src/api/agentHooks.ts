@@ -28,6 +28,8 @@ import {
   getGapVerdict,
   patchGap,
 } from "./client";
+import { isTerminalScratchpadRunStatus } from "./runStatus";
+import { asRCorpusId } from "./corpusIds";
 import type {
   GapCandidate,
   GapDiscoverAccepted,
@@ -37,7 +39,6 @@ import type {
   ScratchpadState,
 } from "../types/research";
 import type {
-  ActiveCorpus,
   ArtifactCreateBody,
   ArtifactItem,
   ArtifactPatchBody,
@@ -51,12 +52,32 @@ import type {
   ProjectLibraryStats,
   SearchCandidate,
 } from "./client";
+import type { components } from "./schema";
+import type { BrandCorpusIdFields, RCorpusId } from "./corpusIds";
 
 // 重新导出工件类型，供页面层直接使用
 export type { ArtifactItem };
 
+export type ActiveCorpus = BrandCorpusIdFields<components["schemas"]["ActiveCorpusDetail"]>;
+export type LatestCorpus = BrandCorpusIdFields<components["schemas"]["LatestCorpusDetail"]>;
+export type ProjectDetail = Omit<components["schemas"]["ProjectDetail"], "activeCorpus" | "latestCorpus"> & {
+  activeCorpus?: ActiveCorpus | null;
+  latestCorpus?: LatestCorpus | null;
+};
+
 // 重新导出，供页面层直接使用（避免从 client 多层引入）
-export type { ActiveCorpus, CorpusMaterializeResult, LibraryStats, ProjectLibraryStats };
+export type { CorpusMaterializeResult, LibraryStats, ProjectLibraryStats };
+
+/** activeCorpus → R corpus id 的唯一解析出口。 */
+export function getActiveRCorpusId(activeCorpus: ActiveCorpus | null | undefined): RCorpusId | null {
+  if (activeCorpus?.status !== "ready" || !activeCorpus.rCorpusId) return null;
+  return asRCorpusId(activeCorpus.rCorpusId);
+}
+
+/** 部分无语料面板仍沿用空字符串占位；品牌化集中在这里，避免调用点散落 as。 */
+export function getPanelRCorpusId(activeCorpus: ActiveCorpus | null | undefined): RCorpusId {
+  return getActiveRCorpusId(activeCorpus) ?? asRCorpusId("");
+}
 
 
 // ---- query hooks ----
@@ -69,7 +90,7 @@ export function useProjects() {
 }
 
 export function useProject(pid: number) {
-  return useQuery({
+  return useQuery<ProjectDetail>({
     queryKey: ["project", pid],
     queryFn: () => getProject(pid),
     enabled: pid > 0,
@@ -149,11 +170,13 @@ export function usePatchInclusion(pid: number) {
       exclusionReason?: string;
       screeningScore?: number;
     }) => patchInclusion(pid, paperId, { inclusionStatus, exclusionReason, screeningScore }),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: ["projectPapers", pid] });
       // 纳排变化会影响 included/candidate/excluded 计数 — 刷新库统计
       void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
       void qc.invalidateQueries({ queryKey: ["globalLibraryStats"] });
+      void qc.invalidateQueries({ queryKey: ["project", pid] });
+      void qc.invalidateQueries({ queryKey: ["paper", pid, variables.paperId] });
     },
   });
 }
@@ -171,6 +194,7 @@ export function useImportPapers(pid: number) {
       // 入库后全局总量与项目文献数量均变化 — 刷新库统计
       void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
       void qc.invalidateQueries({ queryKey: ["globalLibraryStats"] });
+      void qc.invalidateQueries({ queryKey: ["project", pid] });
     },
   });
 }
@@ -197,13 +221,13 @@ export function useRun(pid: number, rid: string) {
 }
 
 // M2: corpus 物化 mutation hook
-// 成功后使 projectDetail 缓存失效，触发 activeCorpus 刷新
+// 完成后使 projectDetail 缓存失效，触发 activeCorpus/latestCorpus 刷新
 export function useMaterializeCorpus(pid: number) {
   const qc = useQueryClient();
   return useMutation<CorpusMaterializeResult, Error, void>({
     mutationFn: () => materializeCorpus(pid),
-    onSuccess: () => {
-      // 失效 project 详情缓存，使 activeCorpus 从服务端重新读取
+    onSettled: () => {
+      // 同步端点失败时后端也可能写入 latestCorpus.failed，需要重拉项目详情展示原因。
       void qc.invalidateQueries({ queryKey: ["project", pid] });
       // 语料就绪状态变化也需要反映在库统计条
       void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
@@ -327,7 +351,7 @@ export function useAddFromSearch(pid: number) {
 
 /** 启动 GAP 发现 run（异步）。成功后调用方拿 run_id 去轮询 scratchpad。 */
 export function useDiscoverGaps(pid: number) {
-  return useMutation<GapDiscoverAccepted, Error, { cid: string }>({
+  return useMutation<GapDiscoverAccepted, Error, { cid: RCorpusId }>({
     mutationFn: ({ cid }) => discoverGaps(pid, cid),
   });
 }
@@ -363,12 +387,12 @@ export function useScratchpad(
     queryKey: ["scratchpad", pid, rid],
     queryFn: () => getScratchpad(pid, rid as string),
     enabled: pid > 0 && !!rid,
-    // 契约级停轮询信号（codex B1-P1）：run_status 进入终态（completed/failed）即停，
+    // 契约级停轮询信号（codex B1-P1）：run_status 进入终态（done/failed）即停，
     // 不再依赖调用方手动把 live 置 false。首拉(undefined)/running 时继续按 pollMs 轮询。
     refetchInterval: (query) => {
       if (!live) return false;
       const status = query.state.data?.run_status;
-      return status === "completed" || status === "failed" ? false : pollMs;
+      return isTerminalScratchpadRunStatus(status) ? false : pollMs;
     },
   });
 }

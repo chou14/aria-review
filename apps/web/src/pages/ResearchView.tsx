@@ -19,10 +19,13 @@ import {
   useVerifyGap,
   useGapVerdict,
   usePatchGap,
+  getActiveRCorpusId,
 } from "../api/agentHooks";
 import { ApiError } from "../api/client";
+import { asRCorpusId } from "../api/corpusIds";
 import type { GapCandidate, GapPatchAction } from "../types/research";
 import { ErrMsg } from "../lib/ui";
+import { ProjectGate } from "../components/ProjectGate";
 import { GapPanel } from "../components/research/GapPanel";
 import { ScratchpadLive } from "../components/research/ScratchpadLive";
 import { ValueVerdictCard } from "../components/research/ValueVerdictCard";
@@ -46,7 +49,7 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
   // 有 corpusId override(dev) 时不拉 project；否则从 activeCorpus 取就绪的 R 语料 id
   const project = useProject(cidProp || !validPid ? 0 : pid);
   const activeCorpus = project.data?.activeCorpus ?? null;
-  const cid = cidProp ?? (activeCorpus?.status === "ready" ? activeCorpus.rCorpusId : null);
+  const cid = cidProp ? asRCorpusId(cidProp) : getActiveRCorpusId(activeCorpus);
 
   const discover = useDiscoverGaps(pid);
   const [runId, setRunId] = useState<string | null>(null);
@@ -126,104 +129,106 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
   }
 
   return (
-    <div className="research-view" data-testid="research-view">
-      <header className="research-head">
-        <div className="research-head-text">
-          <h2 className="research-title">研究空白发现 · 价值核验</h2>
-          <p className="research-sub">
-            agent 发现结构化研究空白，确定性核验其价值；所有裁决<strong>浮现给你审定</strong>，不自动定稿。
-          </p>
-        </div>
-        <button
-          type="button"
-          className="btn btn-primary research-discover-btn"
-          disabled={!cid || discover.isPending}
-          onClick={startDiscover}
-          title={cid ? "启动 GAP 发现 run" : "需先构建分析语料"}
-        >
-          {discover.isPending ? "发现中…" : runId ? "重新发现" : "发现研究空白"}
-        </button>
-      </header>
-
-      {!cid && (
-        <div className="research-need-corpus" role="note">
-          需先在「分析」区构建就绪的分析语料（R corpus），才能发现研究空白。
-        </div>
-      )}
-      {discover.isError && <ErrMsg error={discover.error} />}
-
-      <div className="research-grid">
-        <main className="research-main">
-          <GapPanel
-            projectId={pid}
-            gaps={gaps}
-            isLoading={!!runId && scratchpad.isLoading}
-            error={(scratchpad.error as Error) ?? null}
-            onSelectGap={(g) => setSelectedGapId(g.gap_id)}
-            selectedGapId={selectedGapId}
-          />
-        </main>
-
-        <aside className="research-aside">
-          <ScratchpadLive
-            state={runId ? scratchpad.data : null}
-            isLoading={!!runId && scratchpad.isLoading}
-            error={(scratchpad.error as Error) ?? null}
-            onSelectGap={(g) => setSelectedGapId(g.gap_id)}
-            selectedGapId={selectedGapId}
-          />
-
-          <div className="research-detail">
-            {!selectedGap ? (
-              <div className="card research-detail-empty" role="note">
-                从左侧选择一个研究空白，查看价值核验与 HITL 决策。
-              </div>
-            ) : selectedGap.status === "draft" ? (
-              <div className="card research-verify-prompt">
-                <p className="research-verify-text">该研究空白尚未核验价值。</p>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={verify.isPending}
-                  onClick={() => verify.mutate({ gapId: selectedGap.gap_id })}
-                >
-                  {verify.isPending && verify.variables?.gapId === selectedGap.gap_id
-                    ? "核验中…"
-                    : "核验研究价值"}
-                </button>
-                {/* codex A3-P2: 计时只在"当前选中 gap 正在核验"时显示，避免核验中切到别的 draft gap 时误显示 */}
-                {verify.isPending && verify.variables?.gapId === selectedGap.gap_id && (
-                  <p
-                    className="research-verify-progress muted"
-                    role="status"
-                    style={{ fontSize: "0.8rem", marginTop: "0.4rem" }}
-                  >
-                    已耗时 {verifyElapsed}s · 反向检索 + 计量核验通常需 1–3 分钟，请稍候
-                  </p>
-                )}
-                {verify.isError && <ErrMsg error={verify.error} />}
-              </div>
-            ) : verdict.data ? (
-              <ValueVerdictCard
-                result={verdict.data}
-                gap={selectedGap}
-                onDecide={onDecide}
-                isDeciding={patch.isPending}
-                decideError={(patch.error as Error) ?? null}
-              />
-            ) : verdict.isError && !is404(verdict.error) ? (
-              <div className="card">
-                <ErrMsg error={verdict.error} />
-              </div>
-            ) : (
-              // 裁决加载中或 404(尚未产生)：显式 pending，不留空白（codex B5-P2）
-              <div className="card research-detail-pending" role="status">
-                <span className="spinner" /> 价值裁决生成中…
-              </div>
-            )}
+    <ProjectGate project={project}>
+      <div className="research-view" data-testid="research-view">
+        <header className="research-head">
+          <div className="research-head-text">
+            <h2 className="research-title">研究空白发现 · 价值核验</h2>
+            <p className="research-sub">
+              agent 发现结构化研究空白，确定性核验其价值；所有裁决<strong>浮现给你审定</strong>，不自动定稿。
+            </p>
           </div>
-        </aside>
+          <button
+            type="button"
+            className="btn btn-primary research-discover-btn"
+            disabled={!cid || discover.isPending}
+            onClick={startDiscover}
+            title={cid ? "启动 GAP 发现 run" : "需先构建分析语料"}
+          >
+            {discover.isPending ? "发现中…" : runId ? "重新发现" : "发现研究空白"}
+          </button>
+        </header>
+
+        {!cid && (
+          <div className="research-need-corpus" role="note">
+            需先在「分析」区构建就绪的分析语料（R corpus），才能发现研究空白。
+          </div>
+        )}
+        {discover.isError && <ErrMsg error={discover.error} />}
+
+        <div className="research-grid">
+          <main className="research-main">
+            <GapPanel
+              projectId={pid}
+              gaps={gaps}
+              isLoading={!!runId && scratchpad.isLoading}
+              error={(scratchpad.error as Error) ?? null}
+              onSelectGap={(g) => setSelectedGapId(g.gap_id)}
+              selectedGapId={selectedGapId}
+            />
+          </main>
+
+          <aside className="research-aside">
+            <ScratchpadLive
+              state={runId ? scratchpad.data : null}
+              isLoading={!!runId && scratchpad.isLoading}
+              error={(scratchpad.error as Error) ?? null}
+              onSelectGap={(g) => setSelectedGapId(g.gap_id)}
+              selectedGapId={selectedGapId}
+            />
+
+            <div className="research-detail">
+              {!selectedGap ? (
+                <div className="card research-detail-empty" role="note">
+                  从左侧选择一个研究空白，查看价值核验与 HITL 决策。
+                </div>
+              ) : selectedGap.status === "draft" ? (
+                <div className="card research-verify-prompt">
+                  <p className="research-verify-text">该研究空白尚未核验价值。</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={verify.isPending}
+                    onClick={() => verify.mutate({ gapId: selectedGap.gap_id })}
+                  >
+                    {verify.isPending && verify.variables?.gapId === selectedGap.gap_id
+                      ? "核验中…"
+                      : "核验研究价值"}
+                  </button>
+                  {/* codex A3-P2: 计时只在"当前选中 gap 正在核验"时显示，避免核验中切到别的 draft gap 时误显示 */}
+                  {verify.isPending && verify.variables?.gapId === selectedGap.gap_id && (
+                    <p
+                      className="research-verify-progress muted"
+                      role="status"
+                      style={{ fontSize: "0.8rem", marginTop: "0.4rem" }}
+                    >
+                      已耗时 {verifyElapsed}s · 反向检索 + 计量核验通常需 1–3 分钟，请稍候
+                    </p>
+                  )}
+                  {verify.isError && <ErrMsg error={verify.error} />}
+                </div>
+              ) : verdict.data ? (
+                <ValueVerdictCard
+                  result={verdict.data}
+                  gap={selectedGap}
+                  onDecide={onDecide}
+                  isDeciding={patch.isPending}
+                  decideError={(patch.error as Error) ?? null}
+                />
+              ) : verdict.isError && !is404(verdict.error) ? (
+                <div className="card">
+                  <ErrMsg error={verdict.error} />
+                </div>
+              ) : (
+                // 裁决加载中或 404(尚未产生)：显式 pending，不留空白（codex B5-P2）
+                <div className="card research-detail-pending" role="status">
+                  <span className="spinner" /> 价值裁决生成中…
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
       </div>
-    </div>
+    </ProjectGate>
   );
 }

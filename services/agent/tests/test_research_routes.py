@@ -31,7 +31,8 @@ class _Job:
 
 
 def test_run_status_mapping():
-    assert _run_status(_Job("done")) == "completed"
+    assert _run_status(_Job("done")) == "done"
+    assert _run_status(_Job("completed")) == "done"  # deprecated 入口兼容
     assert _run_status(_Job("failed")) == "failed"
     assert _run_status(_Job("error")) == "failed"
     assert _run_status(_Job("running")) == "running"
@@ -50,7 +51,7 @@ def test_discover_job_update_ok_with_gaps():
 
 
 def test_discover_job_update_ok_empty_is_done_empty():
-    """completed-empty（codex 二审）：outcome=ok 但 0 条 = 正常跑完未发现，仍 done 但标 empty。"""
+    """done-empty（codex 二审）：outcome=ok 但 0 条 = 正常跑完未发现，仍 done 但标 empty。"""
     upd = _discover_job_update({"outcome": "ok", "gaps": [], "tool_failures": 0})
     assert upd["status"] == "done"
     assert upd["summary_json"]["empty"] is True
@@ -58,7 +59,7 @@ def test_discover_job_update_ok_empty_is_done_empty():
 
 
 def test_discover_job_update_error_is_failed():
-    """问题3 回归锁：gap-finder outcome=error 必须置 failed，绝不静默 done（吞错成 completed）。"""
+    """问题3 回归锁：gap-finder outcome=error 必须置 failed，绝不静默 done。"""
     upd = _discover_job_update({"outcome": "error", "gaps": [], "tool_failures": 1,
                                 "tool_failure_reasons": ["read_paper: 无法加载 paper 571（不在本项目）"]})
     assert upd["status"] == "failed"

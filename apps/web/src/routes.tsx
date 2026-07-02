@@ -6,7 +6,8 @@
  *   /projects/:pid                  ProjectShell（壳层）
  *     index                         ChatWorkbench（agent 对话）
  *     library                       LibraryView（三栏文管）
- *     library/:paperId              PaperDetailPage（详情）
+ *     library/:paperId              LibraryView 右栏详情（兼容深链接）
+ *     papers[/paperId]              重定向到 library[/paperId]
  *     analysis                      AnalysisView（重定向至 overview）
  *     analysis/:view                AnalysisView（13 视图之一）
  *     output                        OutputView（产出区）
@@ -18,18 +19,18 @@
  *   - analysis 根路由用 Navigate 重定向到 overview
  */
 import { lazy, Suspense, type ReactNode } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
 
 // 页面
 import { WorkbenchLayout } from "./components/workbench/WorkbenchLayout";
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
+import { RouteLoadingFallback } from "./components/RouteFallback";
 
 // 壳层
 import { ProjectShell } from "./components/shell/ProjectShell";
 
-const PaperDetailPage = lazy(() => import("./pages/PaperDetailPage").then((m) => ({ default: m.PaperDetailPage })));
 const ChatWorkbench = lazy(() => import("./pages/ChatWorkbench").then((m) => ({ default: m.ChatWorkbench })));
 const LibraryView = lazy(() => import("./pages/LibraryView").then((m) => ({ default: m.LibraryView })));
-const LibraryIndex = lazy(() => import("./pages/LibraryIndex").then((m) => ({ default: m.LibraryIndex })));
 const AnalysisView = lazy(() => import("./pages/AnalysisView").then((m) => ({ default: m.AnalysisView })));
 const ResearchView = lazy(() => import("./pages/ResearchView").then((m) => ({ default: m.ResearchView })));
 const OutputView = lazy(() => import("./pages/OutputView").then((m) => ({ default: m.OutputView })));
@@ -43,7 +44,16 @@ const DevRoutes = import.meta.env.DEV
   : null;
 
 function routePage(node: ReactNode) {
-  return <Suspense fallback={null}>{node}</Suspense>;
+  return (
+    <RouteErrorBoundary>
+      <Suspense fallback={<RouteLoadingFallback />}>{node}</Suspense>
+    </RouteErrorBoundary>
+  );
+}
+
+function PapersRedirect() {
+  const { pid, paperId } = useParams<{ pid: string; paperId?: string }>();
+  return <Navigate to={`/projects/${pid}/library${paperId ? `/${paperId}` : ""}`} replace />;
 }
 
 /** 404 兜底页：未匹配任何路由时显示，提供返回首页入口（复用 .container/.card 样式） */
@@ -75,9 +85,10 @@ export function AppRoutes() {
 
         {/* 文献库：LibraryView 提供容器 Outlet，子路由为列表和详情 */}
         <Route path="library" element={routePage(<LibraryView />)}>
-          <Route index element={routePage(<LibraryIndex />)} />
-          <Route path=":paperId" element={routePage(<PaperDetailPage />)} />
+          <Route path=":paperId" element={null} />
         </Route>
+        <Route path="papers" element={<PapersRedirect />} />
+        <Route path="papers/:paperId" element={<PapersRedirect />} />
 
         {/* 分析区：analysis 根路由重定向到 overview；:view 为具体视图 */}
         <Route path="analysis">
@@ -98,11 +109,7 @@ export function AppRoutes() {
       {import.meta.env.DEV && DevRoutes && (
         <Route
           path="/dev/*"
-          element={
-            <Suspense fallback={null}>
-              <DevRoutes />
-            </Suspense>
-          }
+          element={routePage(<DevRoutes />)}
         />
       )}
 

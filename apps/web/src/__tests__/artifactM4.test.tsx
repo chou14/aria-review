@@ -39,6 +39,24 @@ vi.mock("../api/agentHooks", async (importOriginal) => {
       isLoading: false,
       error: null,
     }),
+    useProjectLibraryStats: () => ({ data: null, isLoading: false, error: null }),
+    useGlobalLibraryStats: () => ({ data: null, isLoading: false, error: null }),
+    useRuns: () => ({ data: { runs: [] }, isLoading: false, error: null }),
+  };
+});
+
+vi.mock("../components/AgentChat", async () => {
+  const React = await import("react");
+  return {
+    AgentChat: ({ onRunComplete }: { onRunComplete?: (info: { runId: string; finalOutput: string; eventSeq: number }) => void }) =>
+      React.createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => onRunComplete?.({ runId: "10", finalOutput: "# 新综述\n正文", eventSeq: 7 }),
+        },
+        "模拟 run 完成",
+      ),
   };
 });
 
@@ -79,6 +97,13 @@ const PINNED_ARTIFACT: ArtifactItem = {
   id: 2,
   title: "已 Pin 综述",
   pinned: true,
+};
+
+const LOCAL_ARTIFACT: ArtifactItem = {
+  ...MOCK_ARTIFACT,
+  id: -123,
+  sourceEventSeq: 7,
+  title: "本地回退综述",
 };
 
 // ---- Helper ----
@@ -189,6 +214,37 @@ describe("ArtifactCard", () => {
     await waitFor(() => {
       expect(mockMutateAsync).toHaveBeenCalledWith({ aid: 1, pinned: true });
     });
+  });
+
+  it("负 id 工件显示未持久化和重试入口，隐藏 Pin 按钮", () => {
+    withProviders(
+      <ArtifactCard
+        artifact={LOCAL_ARTIFACT}
+        projectId={5}
+        onExpand={vi.fn()}
+        onRetryPersist={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("未持久化")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试持久化" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+  });
+
+  it("Pin 失败时渲染错误提示", async () => {
+    const mockMutateAsync = vi.fn().mockRejectedValue(new Error("network down"));
+    mockUsePatchArtifact.mockReturnValue({
+      mutateAsync: mockMutateAsync,
+      isPending: false,
+    });
+    withProviders(
+      <ArtifactCard
+        artifact={MOCK_ARTIFACT}
+        projectId={5}
+        onExpand={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    expect(await screen.findByText("Pin 操作失败，请稍后重试。")).toBeInTheDocument();
   });
 
   it("有 onRerun 时渲染「重跑」按钮", () => {
@@ -356,16 +412,45 @@ describe("ChatWorkbench 工件化", () => {
     mockUseArtifacts.mockReturnValue({
       data: { artifacts: [] },
       isLoading: false,
+      error: null,
       refetch: vi.fn(),
     });
     withRouterAndProviders(<ChatWorkbench />);
     expect(screen.queryByText("已 Pin 工件")).toBeNull();
   });
 
+  it("已 pin 工件加载中时显示加载态", () => {
+    mockUseArtifacts.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    withRouterAndProviders(<ChatWorkbench />);
+    expect(screen.getByText("已 Pin 工件")).toBeInTheDocument();
+    expect(screen.getByText(/加载已 Pin 工件/)).toBeInTheDocument();
+  });
+
+  it("已 pin 工件加载失败时显示错误和重试", () => {
+    const refetch = vi.fn();
+    mockUseArtifacts.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("network down"),
+      refetch,
+    });
+    withRouterAndProviders(<ChatWorkbench />);
+
+    expect(screen.getByText("已 Pin 工件加载失败，请重试。")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it("有 pin 工件时侧栏显示「已 Pin 工件」标题", () => {
     mockUseArtifacts.mockReturnValue({
       data: { artifacts: [PINNED_ARTIFACT] },
       isLoading: false,
+      error: null,
       refetch: vi.fn(),
     });
     withRouterAndProviders(<ChatWorkbench />);
@@ -376,9 +461,52 @@ describe("ChatWorkbench 工件化", () => {
     mockUseArtifacts.mockReturnValue({
       data: { artifacts: [PINNED_ARTIFACT] },
       isLoading: false,
+      error: null,
       refetch: vi.fn(),
     });
     withRouterAndProviders(<ChatWorkbench />);
     expect(screen.getByText("已 Pin 综述")).toBeInTheDocument();
+  });
+
+  it("本地回退工件重试持久化成功后替换为真实 id 工件", async () => {
+    const mutateAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ ...MOCK_ARTIFACT, id: 99, title: "新综述", sourceEventSeq: 7 });
+    mockUseCreateArtifact.mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    });
+    mockUseArtifacts.mockReturnValue({
+      data: { artifacts: [] },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    withRouterAndProviders(<ChatWorkbench />);
+    fireEvent.click(screen.getByRole("button", { name: "模拟 run 完成" }));
+
+    expect(await screen.findByText("未持久化")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试持久化" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "重试持久化" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("未持久化")).toBeNull();
+    });
+    expect(screen.getByText("新综述")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pin" })).toBeInTheDocument();
+    expect(mutateAsync).toHaveBeenNthCalledWith(2, {
+      type: "review",
+      title: "新综述",
+      runId: 10,
+      sourceEventSeq: 7,
+      contentRef: "run:10",
+      pinned: false,
+      userAnnotation: null,
+      order: 0,
+    });
   });
 });

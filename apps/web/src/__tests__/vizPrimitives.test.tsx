@@ -71,7 +71,7 @@ import type { DataTableColumn } from "../components/viz/DataTable";
 import { NodeCountSlider } from "../components/viz/NodeCountSlider";
 import { ExportMenu, timestamp } from "../components/viz/ExportMenu";
 import { InsufficientData } from "../components/viz/InsufficientData";
-import { createRef } from "react";
+import { createRef, useState } from "react";
 
 // ============================================================
 // EChart
@@ -237,6 +237,33 @@ describe("DataTable", () => {
       />
     );
     expect(screen.getByText("共5篇")).toBeInTheDocument();
+  });
+
+  it("getRowKey 用稳定行 key，排序后行内状态不串位", () => {
+    type KeyedRow = Row & { id: string };
+    function StickyCell({ value }: { value: string }) {
+      const [initial] = useState(value);
+      return <span>{initial}</span>;
+    }
+    const keyedRows: KeyedRow[] = [
+      { id: "b", name: "乙", count: 30 },
+      { id: "a", name: "甲", count: 10 },
+      { id: "c", name: "丙", count: 20 },
+    ];
+    render(
+      <DataTable
+        columns={[
+          { key: "name", label: "名称", format: (v) => <StickyCell value={String(v)} /> },
+          { key: "count", label: "数量", sortable: true },
+        ]}
+        rows={keyedRows}
+        getRowKey={(row) => row.id}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /数量/ }));
+    const body = screen.getAllByRole("row").slice(1);
+    expect(within(body[0]).getByText("甲")).toBeInTheDocument();
+    expect(within(body[0]).queryByText("乙")).not.toBeInTheDocument();
   });
 });
 

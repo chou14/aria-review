@@ -15,8 +15,10 @@
 OA_BASE         <- "https://api.openalex.org"
 OA_DEFAULT_MAIL <- "aria-review@users.noreply.github.com"  # 学术礼貌联系人
 OA_PAGE_SIZE    <- 200L     # OpenAlex 单页上限
+OA_MAX_RESULTS  <- 500L     # 系统综述候选池上限，超过显式报错
 OA_REFS_BATCH   <- 50L      # filter=ids.openalex:W1|W2|... 单次 ID 数
 OA_TIMEOUT_S    <- 30
+OA_SEARCH_MAX_ELAPSED_S <- 95  # 默认足够完成 3 页；可用 OPENALEX_SEARCH_MAX_ELAPSED_S 覆盖
 
 #' 清洗 OpenAlex 文本: 去 HTML 标签 / 实体 / 控制字符 (WoS plaintext 不允许这些)
 .oa_clean_text <- function(s) {
@@ -63,6 +65,81 @@ OA_TIMEOUT_S    <- 30
   1 - d / max(nchar(na), nchar(nb))
 }
 
+.oa_search_max_elapsed_s <- function() {
+  v <- suppressWarnings(as.numeric(Sys.getenv(
+    "OPENALEX_SEARCH_MAX_ELAPSED_S",
+    unset = as.character(OA_SEARCH_MAX_ELAPSED_S)
+  )))
+  if (is.na(v) || v <= 0) OA_SEARCH_MAX_ELAPSED_S else v
+}
+
+.oa_limit_error <- function(n) {
+  list(error = TRUE, status = 400L,
+       message = sprintf("OpenAlex limit 不能超过 %d", OA_MAX_RESULTS))
+}
+
+.oa_mark_partial <- function(works, reason) {
+  attr(works, "partial") <- TRUE
+  attr(works, "partialReason") <- reason
+  works
+}
+
+.oa_partial <- function(x) isTRUE(attr(x, "partial"))
+.oa_partial_reason <- function(x) attr(x, "partialReason") %||% ""
+
+.oa_fetch_error <- function(status, message) {
+  list(error = TRUE, status = as.integer(status), message = message)
+}
+
+.oa_page_error_reason <- function(page) {
+  status <- page$status %||% 0L
+  msg <- page$message %||% "未知错误"
+  if (status > 0L) sprintf("OpenAlex 返回 %d: %s", status, msg)
+  else paste0("OpenAlex 网络错误: ", msg)
+}
+
+#' 聚合 OpenAlex cursor 分页；fetch_page 可注入，便于离线测试分页/部分结果。
+.oa_collect_cursor_pages <- function(n, fetch_page,
+                                     max_elapsed_s = .oa_search_max_elapsed_s(),
+                                     page_size = OA_PAGE_SIZE,
+                                     clock = function() proc.time()[["elapsed"]]) {
+  if (n > OA_MAX_RESULTS) return(.oa_limit_error(n))
+  works <- list()
+  cursor <- "*"
+  started <- clock()
+
+  while (length(works) < n && !is.null(cursor) && nzchar(cursor)) {
+    elapsed <- clock() - started
+    if (elapsed >= max_elapsed_s) {
+      return(.oa_mark_partial(
+        works,
+        sprintf("OpenAlex 聚合超过 %.0f 秒，已返回 %d 条部分结果",
+                max_elapsed_s, length(works))
+      ))
+    }
+
+    page <- tryCatch(
+      fetch_page(cursor = cursor, per_page = page_size),
+      error = function(e) .oa_fetch_error(0L, conditionMessage(e))
+    )
+    if (.oa_is_error(page)) {
+      if (length(works) > 0L || identical(as.integer(page$status %||% 0L), 429L)) {
+        return(.oa_mark_partial(works, .oa_page_error_reason(page)))
+      }
+      return(.oa_fetch_error(page$status %||% 0L, .oa_page_error_reason(page)))
+    }
+
+    results <- page$results %||% list()
+    if (!length(results)) break
+    need <- n - length(works)
+    works <- c(works, utils::head(results, need))
+    if (length(works) >= n) break
+    cursor <- page$next_cursor %||% NULL
+  }
+
+  works
+}
+
 #' 按 DOI 取单条 OpenAlex work (404 不报错, 返回 NULL)
 .oa_get_work_by_doi <- function(doi) {
   if (is.null(doi) || !nzchar(doi)) return(NULL)
@@ -106,18 +183,20 @@ OA_TIMEOUT_S    <- 30
 #' OpenAlex 主题词检索, 按相关度返回近 since 年发表的 n 篇文献 (完整 work 对象)
 #' 返回值:
 #'   - 正常时: work 对象列表 (0..n 条)
+#'   - 部分成功时: work 对象列表 + attr(partial=TRUE, partialReason=<chr>)
 #'   - 网络/HTTP 错误时: list(error=TRUE, status=<int>, message=<chr>)
 #'     → 调用方须用 .oa_is_error() 检查, 与"真空(0命中)"区分
 .oa_search_works <- function(query, n = 50, since = "2016-01-01") {
-  works <- list()
-  cursor <- "*"
-  page_sz <- min(OA_PAGE_SIZE, max(n, 25L))
-  while (length(works) < n && !is.null(cursor) && nzchar(cursor)) {
+  n <- suppressWarnings(as.integer(n))
+  if (is.na(n) || n < 1L) n <- 1L
+  if (n > OA_MAX_RESULTS) return(.oa_limit_error(n))
+
+  fetch_page <- function(cursor, per_page) {
     req <- httr2::request(paste0(OA_BASE, "/works")) |>
       httr2::req_url_query(
         search    = query,
         filter    = sprintf("from_publication_date:%s,type:article,has_doi:true", since),
-        `per-page`= page_sz,
+        `per-page`= per_page,
         sort      = "relevance_score:desc",
         cursor    = cursor,
         mailto    = .oa_mail()
@@ -127,13 +206,9 @@ OA_TIMEOUT_S    <- 30
       httr2::req_error(is_error = function(resp) FALSE)
     resp <- tryCatch(httr2::req_perform(req), error = function(e) {
       # 网络/连接级错误 → 返回错误信号
-      list(.__oa_error__ = TRUE, status = 0L, message = conditionMessage(e))
+      .oa_fetch_error(0L, conditionMessage(e))
     })
-    # 连接级错误
-    if (is.list(resp) && isTRUE(resp$.__oa_error__)) {
-      return(list(error = TRUE, status = resp$status,
-                  message = paste0("OpenAlex 网络错误: ", resp$message)))
-    }
+    if (.oa_is_error(resp)) return(resp)
     # HTTP >= 400 错误
     http_status <- httr2::resp_status(resp)
     if (http_status >= 400L) {
@@ -142,18 +217,14 @@ OA_TIMEOUT_S    <- 30
           paste0("HTTP ", http_status),
         error = function(e) paste0("HTTP ", http_status)
       )
-      return(list(error = TRUE, status = http_status,
-                  message = paste0("OpenAlex 返回 ", http_status, ": ", msg)))
+      return(.oa_fetch_error(http_status, msg))
     }
     body <- httr2::resp_body_json(resp, simplifyVector = FALSE)
-    results <- body$results %||% list()
-    if (!length(results)) break
-    need <- n - length(works)
-    works <- c(works, utils::head(results, need))
-    if (length(works) >= n) break
-    cursor <- body$meta$next_cursor
+    list(results = body$results %||% list(),
+         next_cursor = body$meta$next_cursor %||% NULL)
   }
-  works
+
+  .oa_collect_cursor_pages(n, fetch_page = fetch_page)
 }
 
 #' 检查 .oa_search_works 返回值是否是错误信号
@@ -418,18 +489,25 @@ OA_TIMEOUT_S    <- 30
 
 #' 主题词检索 → 规范化候选列表 (只检索不建库)
 #' 复用 .oa_search_works / .oa_works_to_candidates, 与 from-topic 路径并行存在互不干扰。
-#' n 上限 clamp 至 100 (与 from-search 入库上限一致, 避免"检索成功但入库 422")。
+#' n 上限为 500; 超过时显式报错, 不静默截断。
 #' 在网络/HTTP 错误时抛出含结构化信息的异常 (让调用方 plumber 处理成 502)。
 oa_search_candidates <- function(query, n = 25, since = "2016-01-01") {
   if (is.null(query) || !nzchar(query)) stop("query 不能为空")
-  n <- min(500L, max(1L, as.integer(n)))   # clamp: 1..500
+  n <- suppressWarnings(as.integer(n))
+  if (is.na(n) || n < 1L) n <- 1L
+  if (n > OA_MAX_RESULTS) {
+    stop(sprintf("OPENALEX_LIMIT_EXCEEDED|limit must be <= %d", OA_MAX_RESULTS))
+  }
   works <- .oa_search_works(query, n = n, since = since)
   # 检查错误信号 (网络/HTTP 错误与"真空结果"区分)
   if (.oa_is_error(works)) {
     stop(sprintf("OPENALEX_UNAVAILABLE|%d|%s",
                  works$status %||% 0L, works$message %||% "未知错误"))
   }
-  .oa_works_to_candidates(works)
+  candidates <- .oa_works_to_candidates(works)
+  attr(candidates, "partial") <- .oa_partial(works)
+  attr(candidates, "partialReason") <- .oa_partial_reason(works)
+  candidates
 }
 
 #' 主入口 (路径 A): 主题词 → WoS plaintext 文件路径 (NULL = 检索无果)
@@ -437,7 +515,12 @@ oa_build_wos_from_topic <- function(query, n = 50, since = "2016-01-01",
                                     with_refs = TRUE) {
   if (is.null(query) || !nzchar(query)) stop("query 不能为空")
   works <- .oa_search_works(query, n = n, since = since)
-  if (!length(works)) return(NULL)
+  if (.oa_is_error(works)) stop(works$message %||% "OpenAlex 检索失败")
+  if (!length(works)) {
+    # 首页即限流的空 partial 不是「无结果」：抛出上游原因，避免误报 NO_RESULTS
+    if (.oa_partial(works)) stop(.oa_partial_reason(works))
+    return(NULL)
+  }
   .oa_works_to_wos_file(works, with_refs = with_refs)
 }
 

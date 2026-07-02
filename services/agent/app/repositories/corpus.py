@@ -156,17 +156,25 @@ async def mark_ready(
     await s.execute(
         update(Corpus)
         .where(Corpus.id == corpus_id)
-        .values(status="ready", r_corpus_id=r_corpus_id, document_count=document_count)
+        .values(
+            status="ready",
+            r_corpus_id=r_corpus_id,
+            document_count=document_count,
+            error_reason=None,
+        )
     )
     await s.commit()
     corpus_q = select(Corpus).where(Corpus.id == corpus_id)
     return (await s.execute(corpus_q)).scalar_one()
 
 
-async def mark_failed(s: AsyncSession, corpus_id: int) -> Corpus:
-    """将 Corpus 行标记为 failed（R 端解析失败时调用）。"""
+async def mark_failed(s: AsyncSession, corpus_id: int, reason: str | None = None) -> Corpus:
+    """将 Corpus 行标记为 failed，并记录可展示的失败原因。"""
+    error_reason = reason or "语料构建失败"
     await s.execute(
-        update(Corpus).where(Corpus.id == corpus_id).values(status="failed")
+        update(Corpus)
+        .where(Corpus.id == corpus_id)
+        .values(status="failed", error_reason=error_reason)
     )
     await s.commit()
     corpus_q = select(Corpus).where(Corpus.id == corpus_id)

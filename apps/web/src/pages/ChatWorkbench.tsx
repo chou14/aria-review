@@ -20,18 +20,15 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   useProject,
   useArtifacts,
-  useCreateArtifact,
   useProjectLibraryStats,
   useGlobalLibraryStats,
   useRuns,
 } from "../api/agentHooks";
-import type { ArtifactItem } from "../api/agentHooks";
-import { getRun } from "../api/client";
-import type { FrontendEvidenceRef } from "../components/GroundingOverlay";
+import { RUN_STATUS_DONE } from "../api/runStatus";
+import { useArtifactCanvas } from "../hooks/useArtifactCanvas";
 import { AgentChat } from "../components/AgentChat";
 import { ArtifactCard } from "../components/ArtifactCard";
 import { ArtifactCanvas } from "../components/ArtifactCanvas";
@@ -39,13 +36,13 @@ import { LibraryStatusBar } from "../components/LibraryStatusBar";
 import { TrustCard } from "../components/TrustCard";
 import { EmptyGuide } from "../components/EmptyGuide";
 import { TrustBadgeStrip } from "../components/TrustBadgeStrip";
+import { ErrMsg, Loading } from "../lib/ui";
 import type { FillPayload } from "../components/PresetLauncher";
 
 export function ChatWorkbench() {
   const { pid } = useParams<{ pid: string }>();
   const pidNum = Number(pid);
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const { data } = useProject(pidNum);
 
   // W1: 文献库统计
@@ -53,10 +50,14 @@ export function ChatWorkbench() {
   const { data: globalStats } = useGlobalLibraryStats();
 
   // 已 pin 工件（跨会话恢复，侧栏展示）
-  const { data: pinnedData, refetch: refetchPinned } = useArtifacts(pidNum, true);
-  const createArtifact = useCreateArtifact(pidNum);
+  const {
+    data: pinnedData,
+    isLoading: pinnedLoading,
+    error: pinnedError,
+    refetch: refetchPinned,
+  } = useArtifacts(pidNum, true);
 
-  // Phase 2: 历史可见 TrustCard。进入页时拉本项目 runs，定位最新 status==="done" 的 run，
+  // Phase 2: 历史可见 TrustCard。进入页时拉本项目 runs，定位最新 done run，
   // 让首次 CLI demo 产生的 run 一进对话页即可见可信凭证；新跑的 run 完成后覆盖（见下）。
   const { data: runsData } = useRuns(pidNum);
   const [trustRunId, setTrustRunId] = useState<number | null>(null);
@@ -64,12 +65,11 @@ export function ChatWorkbench() {
   const trustPinnedRef = useRef(false);
   useEffect(() => {
     if (trustPinnedRef.current) return;
-    const latestDone = runsData?.runs?.find((r) => r.status === "done");
+    const latestDone = runsData?.runs?.find((r) => r.status === RUN_STATUS_DONE);
     if (latestDone) setTrustRunId(Number(latestDone.runId));
   }, [runsData]);
 
-  // 本次 run 产出的工件（本地临时，AgentChat 新 run 后清空）
-  const [localArtifacts, setLocalArtifacts] = useState<ArtifactItem[]>([]);
+  const artifactCanvas = useArtifactCanvas(pidNum);
 
   // W4 Task 7: 预设/能力卡/建议追问注入输入框
   // I-1 修复：使用 {text, seq} 对象，seq 每次递增，确保同一文本二次点击也触发 useEffect
@@ -84,98 +84,18 @@ export function ChatWorkbench() {
     setFillPrompt((prev) => ({ text: payload.prompt, seq: (prev?.seq ?? 0) + 1 }));
   }, []);
 
-  // Canvas 状态
-  const [canvasArtifact, setCanvasArtifact] = useState<ArtifactItem | null>(null);
-  const [canvasContent, setCanvasContent] = useState<string | null>(null);
-  const [canvasEvidenceRefs, setCanvasEvidenceRefs] = useState<FrontendEvidenceRef[] | null>(null);
-
-  // 去重: 已处理的 runId:eventSeq, 防同一 run_complete 回调重复造工件 (codex M4-P2#1)
-  const processedRef = useRef<Set<string>>(new Set());
-
-  /**
-   * AgentChat run 完成回调 (codex M4-P2: 经 AgentChat onRunComplete prop 传入真实 runId,
-   * 替代旧的 DOM MutationObserver + runId=-1。真实 runId → createArtifact 不再 404。)
-   */
-  const handleRunComplete = useCallback(
-    async (runId: string, finalOutput: string, eventSeq: number) => {
-      // 去重: 同一 run 的同一完成事件只造一次工件
-      const dedupKey = `${runId}:${eventSeq}`;
-      if (processedRef.current.has(dedupKey)) return;
-      processedRef.current.add(dedupKey);
-
-      // W4 Task 7: 标记已发起过 run，隐藏空状态引导
-      setHasRun(true);
-
-      // SSE run_complete 才是 agent 真正完成的时点；在此失效统计/项目缓存，
-      // 确保读到 agent 工具（纳排/语料修改）之后的最新值。
-      void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pidNum] });
-      void qc.invalidateQueries({ queryKey: ["globalLibraryStats"] });
-      void qc.invalidateQueries({ queryKey: ["project", pidNum] });
-
-      // 1. 派生工件标题（取 final_output 首行 heading，fallback 到运行时间戳）
-      const titleMatch = finalOutput.match(/^#+\s+(.+)/m);
-      const title = titleMatch ? titleMatch[1].trim() : `综述 ${new Date().toLocaleTimeString()}`;
-
-      // 2. 持久化工件身份到后端（真实 runId + sourceEventSeq）
-      try {
-        const artifact = await createArtifact.mutateAsync({
-          type: "review",
-          title,
-          runId: Number(runId),
-          sourceEventSeq: eventSeq,
-          contentRef: `run:${runId}`,
-          pinned: false,
-        });
-        setLocalArtifacts((prev) => [artifact, ...prev]);
-      } catch {
-        // 持久化失败: 回退为本地临时工件(仍带真实 runId, 展开可加载内容), 不阻断 UX
-        setLocalArtifacts((prev) => [
-          {
-            id: -1 * Date.now(),
-            projectId: pidNum,
-            runId: Number(runId),
-            type: "review",
-            title,
-            contentRef: `run:${runId}`,
-            pinned: false,
-            order: 0,
-          },
-          ...prev,
-        ]);
-      }
-    },
-    [createArtifact, pidNum, qc],
-  );
-
-  // 展开 Canvas
-  const handleExpand = useCallback(
-    async (artifact: ArtifactItem) => {
-      setCanvasArtifact(artifact);
-      setCanvasContent(null);
-      setCanvasEvidenceRefs(null);
-
-      // 取 RunDetail（final_output + evidenceRefs）
-      if (artifact.runId && artifact.runId > 0) {
-        try {
-          const detail = await getRun(pidNum, String(artifact.runId));
-          setCanvasContent(detail.finalOutput ?? null);
-          setCanvasEvidenceRefs(
-            ((detail.evidenceRefs as FrontendEvidenceRef[] | null) ?? null),
-          );
-        } catch {
-          setCanvasContent("（加载综述内容失败）");
-        }
-      }
-    },
-    [pidNum],
-  );
-
   // 合并：本地工件 + 已 pin 工件（去重）
   const pinnedArtifacts = pinnedData?.artifacts ?? [];
   const pinnedIds = new Set(pinnedArtifacts.map((a) => a.id));
-  const localOnly = localArtifacts.filter((a) => !pinnedIds.has(a.id));
+  const localOnly = artifactCanvas.localArtifacts.filter((a) => !pinnedIds.has(a.id));
+  // 有缓存数据时后台刷新失败不阻断列表（stale-while-error），只在首载失败时展示错误
+  const pinnedDisplayError = pinnedError && pinnedData == null
+    ? Object.assign(new Error("已 Pin 工件加载失败，请重试。"), {
+        originalMessage: pinnedError instanceof Error ? pinnedError.message : String(pinnedError),
+      })
+    : null;
 
-  const hasCanvas = canvasArtifact !== null;
+  const hasCanvas = artifactCanvas.hasCanvas;
 
   // activeCorpus 摘要传给 LibraryStatusBar
   const activeCorpus = data?.activeCorpus ?? null;
@@ -230,7 +150,7 @@ export function ChatWorkbench() {
                 // Phase 2: 新跑完的 run 覆盖历史 run（且后续不再被 runs 列表回拉覆盖）
                 trustPinnedRef.current = true;
                 setTrustRunId(Number(info.runId));
-                void handleRunComplete(info.runId, info.finalOutput, info.eventSeq);
+                void artifactCanvas.handleRunComplete(info);
               }}
             />
           </div>
@@ -253,7 +173,8 @@ export function ChatWorkbench() {
                   key={art.id}
                   artifact={art}
                   projectId={pidNum}
-                  onExpand={handleExpand}
+                  onExpand={artifactCanvas.handleExpand}
+                  onRetryPersist={artifactCanvas.handleRetryPersist}
                 />
               ))}
             </div>
@@ -264,7 +185,26 @@ export function ChatWorkbench() {
         {!hasCanvas && (
           <aside className="workbench-aside">
             {/* 已 pin 工件（跨会话） */}
-            {pinnedArtifacts.length > 0 && (
+            {pinnedLoading && (
+              <div className="card">
+                <h3 style={{ marginTop: 0, fontSize: "0.95rem" }}>已 Pin 工件</h3>
+                <Loading label="加载已 Pin 工件…" />
+              </div>
+            )}
+            {pinnedDisplayError && (
+              <div className="card">
+                <h3 style={{ marginTop: 0, fontSize: "0.95rem" }}>已 Pin 工件</h3>
+                <ErrMsg
+                  error={pinnedDisplayError}
+                  action={
+                    <button type="button" className="btn btn-ghost" onClick={() => void refetchPinned()}>
+                      重试
+                    </button>
+                  }
+                />
+              </div>
+            )}
+            {!pinnedLoading && !pinnedDisplayError && pinnedArtifacts.length > 0 && (
               <div className="card">
                 <h3 style={{ marginTop: 0, fontSize: "0.95rem" }}>已 Pin 工件</h3>
                 {pinnedArtifacts.map((art) => (
@@ -272,7 +212,7 @@ export function ChatWorkbench() {
                     key={art.id}
                     artifact={art}
                     projectId={pidNum}
-                    onExpand={handleExpand}
+                    onExpand={artifactCanvas.handleExpand}
                   />
                 ))}
               </div>
@@ -283,15 +223,28 @@ export function ChatWorkbench() {
         {/* ArtifactCanvas（右侧展开时替代侧栏） */}
         {hasCanvas && (
           <div className="workbench-canvas-pane">
+            {artifactCanvas.canvasArtifact?.runId
+              && Number(artifactCanvas.canvasArtifact.runId) > 0
+              && artifactCanvas.canvasContentState.error && (
+              <div className="card" style={{ marginBottom: "0.75rem" }}>
+                <span style={{ color: "var(--danger)" }}>加载工件内容失败。</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ marginLeft: "0.75rem" }}
+                  onClick={artifactCanvas.canvasContentState.retry}
+                >
+                  重试
+                </button>
+              </div>
+            )}
             <ArtifactCanvas
-              artifact={canvasArtifact}
+              artifact={artifactCanvas.canvasArtifact}
               projectId={pidNum}
-              content={canvasContent}
-              evidenceRefs={canvasEvidenceRefs}
+              content={artifactCanvas.canvasContent}
+              evidenceRefs={artifactCanvas.canvasEvidenceRefs}
               onClose={() => {
-                setCanvasArtifact(null);
-                setCanvasContent(null);
-                setCanvasEvidenceRefs(null);
+                artifactCanvas.setCanvasArtifact(null);
                 void refetchPinned();
               }}
             />

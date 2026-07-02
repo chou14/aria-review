@@ -11,6 +11,7 @@
 import { useMemo } from "react";
 import type { GapCandidate, GapStatus, ScratchpadState } from "../../types/research";
 import { useScratchpad } from "../../api/agentHooks";
+import { RUN_STATUS_DONE } from "../../api/runStatus";
 import { ErrMsg } from "../../lib/ui";
 
 const STATUS_META: Record<GapStatus, { label: string; cls: string }> = {
@@ -53,7 +54,7 @@ export function ScratchpadLive({ state, isLoading, error, onSelectGap, selectedG
   const statusBadge =
     runStatus === "failed"
       ? { label: "运行失败", cls: "sp-run-failed" }
-      : runStatus === "completed"
+      : runStatus === RUN_STATUS_DONE
         ? { label: "已完成", cls: "sp-run-done" }
         : running
           ? { label: "运行中", cls: "sp-run-live" }

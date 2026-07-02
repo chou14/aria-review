@@ -9,11 +9,11 @@
  *   5. 入库成功后显示 imported/skipped 计数反馈
  *   6. 无候选时不渲染列表
  *   7. 按钮无障碍可键盘触发
- *   C. 候选集合变化（第二次检索）时重置为全选新候选
- *   D. 可点击链接文案为"原文 ↗"，来源徽章为"OpenAlex"
+ *   C. 候选集合变化（第二次检索）时只默认勾选新候选
+ *   D. 可点击链接文案为"DOI/来源 ↗"，来源徽章为"OpenAlex"
  */
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { SearchCandidate } from "../../api/client";
 
 // Mock useAddFromSearch hook
@@ -61,7 +61,11 @@ const MOCK_CANDIDATES: SearchCandidate[] = [
 describe("SearchCandidateCards", () => {
   beforeEach(() => {
     mockMutateAsync.mockReset();
-    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: 0, paperIds: [101, 102] });
+    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: [], failedCount: 0, paperIds: [101, 102] });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("渲染候选列表：标题、作者、年份、来源徽章、被引数", () => {
@@ -132,6 +136,8 @@ describe("SearchCandidateCards", () => {
   });
 
   it("「加入并纳入」按钮调 mutateAsync，带选中候选 + defaultStatus='included'", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 
     const includeBtn = screen.getByRole("button", { name: /加入并纳入/ });
@@ -149,6 +155,8 @@ describe("SearchCandidateCards", () => {
   });
 
   it("取消勾选后「加入并纳入」只发送剩余选中候选", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 
     // 取消第一条
@@ -165,10 +173,11 @@ describe("SearchCandidateCards", () => {
       expect(call.candidates).toHaveLength(1);
       expect(call.candidates[0].title).toContain("Earnings Management");
     });
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it("入库成功后显示 imported/skipped 计数反馈", async () => {
-    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: 0, paperIds: [101, 102] });
+    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: [], failedCount: 0, paperIds: [101, 102] });
 
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 
@@ -182,7 +191,7 @@ describe("SearchCandidateCards", () => {
   });
 
   it("skipped > 0 时显示跳过数提示", async () => {
-    mockMutateAsync.mockResolvedValue({ imported: 1, skipped: 1, failed: 0, paperIds: [101] });
+    mockMutateAsync.mockResolvedValue({ imported: 1, skipped: 1, failed: [], failedCount: 0, paperIds: [101] });
 
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 
@@ -287,9 +296,9 @@ describe("SearchCandidateCards", () => {
     });
   });
 
-  // ---- C: 候选集合变化时重置选择 ----
+  // ---- C: 候选集合变化时只默认勾选新候选 ----
 
-  it("C: 候选变化时重置为全选新候选（旧选择不残留）", () => {
+  it("C: 第二轮合并候选后，被取消的旧候选保持未选中，新候选默认选中", () => {
     const CANDIDATES_A: SearchCandidate[] = [
       {
         candidate_id: "A1",
@@ -302,7 +311,8 @@ describe("SearchCandidateCards", () => {
         source: "openalex",
       },
     ];
-    const CANDIDATES_B: SearchCandidate[] = [
+    const CANDIDATES_MERGED: SearchCandidate[] = [
+      ...CANDIDATES_A,
       {
         candidate_id: "B1",
         title: "Paper B1",
@@ -325,18 +335,46 @@ describe("SearchCandidateCards", () => {
     fireEvent.click(checkboxesA[0]);
     expect(checkboxesA[0]).not.toBeChecked();
 
-    // 切换到候选集 B
+    // 第二轮检索合并：A1/A2 已存在，B1 新出现。
     act(() => {
-      rerender(<SearchCandidateCards projectId={5} candidates={CANDIDATES_B} />);
+      rerender(<SearchCandidateCards projectId={5} candidates={CANDIDATES_MERGED} />);
     });
 
-    // B 集应全选（A1 的取消不残留）
-    const checkboxesB = screen.getAllByRole("checkbox").filter(
+    const checkboxesMerged = screen.getAllByRole("checkbox").filter(
       (cb) => cb.getAttribute("data-candidate-id")
     );
-    expect(checkboxesB).toHaveLength(1);
-    expect(checkboxesB[0]).toBeChecked();
-    expect(checkboxesB[0].getAttribute("data-candidate-id")).toBe("B1");
+    expect(checkboxesMerged).toHaveLength(3);
+    expect(screen.getByLabelText("选择：Paper A1")).not.toBeChecked();
+    expect(screen.getByLabelText("选择：Paper A2")).toBeChecked();
+    expect(screen.getByLabelText("选择：Paper B1")).toBeChecked();
+  });
+
+  it("P1-5: 全选状态点「加入并纳入」先确认，确认后才触发回调", async () => {
+    const confirmSpy = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
+
+    const includeBtn = screen.getByRole("button", { name: /加入并纳入/ });
+    fireEvent.click(includeBtn);
+
+    expect(confirmSpy).toHaveBeenCalledWith("确认将 2 篇全部加入并纳入？");
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+
+    fireEvent.click(includeBtn);
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledWith({
+        pid: 5,
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ candidate_id: "W1111" }),
+          expect.objectContaining({ candidate_id: "W2222" }),
+        ]),
+        defaultStatus: "included",
+      });
+    });
   });
 
   // ---- D: 链接文案和来源徽章 ----
@@ -367,8 +405,17 @@ describe("SearchCandidateCards", () => {
 
   // ---- P2-3: failed 计数反馈 ----
 
-  it("P2-3: failed > 0 时显示失败计数（不与 skipped 混淆）", async () => {
-    mockMutateAsync.mockResolvedValue({ imported: 1, skipped: 0, failed: 2, paperIds: [101] });
+  it("P1-3: failed > 0 时显示失败计数和可折叠明细", async () => {
+    mockMutateAsync.mockResolvedValue({
+      imported: 1,
+      skipped: 0,
+      failed: [
+        { candidateId: "W1111", title: "Analyst Forecast Accuracy and IPO Underpricing", reason: "数据库冲突：UNIQUE constraint failed" },
+        { candidateId: "W2222", title: "Earnings Management and Analyst Forecast Dispersion", reason: "字段异常：year out of range" },
+      ],
+      failedCount: 2,
+      paperIds: [101],
+    });
 
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 
@@ -378,11 +425,37 @@ describe("SearchCandidateCards", () => {
     await waitFor(() => {
       expect(screen.getByText(/已导入 1 篇/)).toBeInTheDocument();
       expect(screen.getByText(/失败 2 篇/)).toBeInTheDocument();
+      expect(screen.getByText(/失败明细/)).toBeInTheDocument();
+      expect(screen.getByText(/数据库冲突/)).toBeInTheDocument();
+      expect(screen.getByText(/year out of range/)).toBeInTheDocument();
     });
   });
 
+  it("P1-3: 点击「只重选失败项」后仅勾选失败候选", async () => {
+    mockMutateAsync.mockResolvedValue({
+      imported: 1,
+      skipped: 0,
+      failed: [
+        { candidateId: "W2222", title: "Earnings Management and Analyst Forecast Dispersion", reason: "模拟 DB 500" },
+      ],
+      failedCount: 1,
+      paperIds: [101],
+    });
+
+    render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
+
+    const addBtn = screen.getByRole("button", { name: /加入文献库/ });
+    fireEvent.click(addBtn);
+
+    const retryFailedBtn = await screen.findByRole("button", { name: /只重选失败项/ });
+    fireEvent.click(retryFailedBtn);
+
+    expect(screen.getByLabelText("选择：Analyst Forecast Accuracy and IPO Underpricing")).not.toBeChecked();
+    expect(screen.getByLabelText("选择：Earnings Management and Analyst Forecast Dispersion")).toBeChecked();
+  });
+
   it("P2-3: failed = 0 时不显示失败提示", async () => {
-    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: 0, paperIds: [101, 102] });
+    mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: [], failedCount: 0, paperIds: [101, 102] });
 
     render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
 

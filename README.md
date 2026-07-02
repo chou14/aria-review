@@ -7,7 +7,7 @@
 **让 AI 写的每一句综述，都能追回真实的原文证据。**
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
 ![R](https://img.shields.io/badge/R-4.3+-276DC3?logo=r&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
@@ -219,8 +219,8 @@ docker compose --profile analysis up -d --build
 | 工具 | 建议版本 |
 |---|---|
 | Docker Compose | v2+ |
-| Node.js / pnpm | Node 20+ / pnpm 9+ |
-| Python | 3.11+ |
+| Node.js / pnpm | Node 20+ / pnpm 9.15.9 |
+| Python | 3.12 |
 | R | 4.3+（仅 R 分析服务测试需要）|
 
 **前端：**
@@ -246,27 +246,57 @@ uvicorn app.main:app --reload --port 8000
 **R 分析服务：**
 
 ```bash
-PORT=8001 Rscript -e 'setwd("services/r-analysis"); library(plumber); plumb("plumber.R")$run(host="0.0.0.0", port=8001)'
+docker compose --profile analysis up -d --build r-analysis
 ```
 
-> 本地若让 Agent 读取服务内 `.env`，放在 `services/agent/.env`（Docker Compose 用仓库根 `.env`）。排查复现问题时先确认是否存在 `services/agent/.env`，它会覆盖本地命令的默认 key 与数据库地址。
+> R 分析服务为 **Docker-only 支持路径**。镜像基于 `services/r-analysis/renv.lock` 通过 `renv::restore()` 还原依赖，锁定 R 4.3.3、bibliometrix 5.4.0、plumber 1.2.1、httr2 1.0.0、jsonlite 2.0.0、digest 0.6.34、Matrix 1.6-5 及其递归依赖；不再支持未锁定的本机 R 包安装路径。
 
-### 可选环境变量
+> 本地若让 Agent 读取服务内 `.env`，放在 `services/agent/.env`（Docker Compose 用仓库根 `.env`）。排查复现问题时先确认是否存在 `services/agent/.env`，它会覆盖本地命令的默认 key 与数据库地址。
+>
+> `services/agent/requirements.txt` 是人工维护的顶层依赖声明；`services/agent/requirements.lock` 是由当前 Python 3.12 虚拟环境 `pip freeze` 生成的复现基线，排查环境差异时优先对照 lock。
+
+### 环境变量
 
 ```bash
 cp .env.example .env
 ```
 
-**所有 key 都是可选项**。不配置时系统走离线或确定性回退路径，仍能跑通 demo。用户的 LLM / Sciverse / Image key 通过请求头透传，**不写入数据库、不回显**。
+用户必填项：无。根目录 `.env` 供 Docker Compose 使用；本地直接运行 Agent 时，可复制 `services/agent/.env.example` 为 `services/agent/.env`。不配置 key 时系统走离线或确定性回退路径，仍能跑通 demo。用户的 LLM / Sciverse / Image key 可通过请求头或环境变量提供，**不写入数据库、不回显**。
 
-| 变量 | 用途 | 不配置时 |
+`services/agent/app/config.py` 实际读取的变量如下：
+
+| 变量 | 默认值 | 用途 |
 |---|---|---|
-| `OCR_AUTHORIZATION_TOKEN` | MinerU 真实全文解析 | demo 用内置 Markdown，真实上传解析降级 |
-| `DEEPSEEK_API_KEY` | 真实 LLM 综述与 AI 工具 | 使用 FakeLLM / 确定性回退 |
-| `SCIVERSE_API_TOKEN` | Sciverse 元数据与全文检索 | Sciverse 路径不可用，OpenAlex 仍可用 |
-| `IMAGE_API_KEY` | 一图读懂生图 | 生成 SVG fallback 或仅保存提示词 |
-| `CORS_ORIGINS` | Agent 允许的前端来源 | Docker 默认限制到 `http://localhost:8080` |
-| `POSTGRES_PORT` | 宿主访问 Compose Postgres 的端口 | `55432` |
+| `R_ANALYSIS_URL` | `http://localhost:8001` | Agent 调用 R 分析服务的地址；Compose 默认覆盖为 `http://r-analysis:8001` |
+| `R_REQUEST_TIMEOUT` | `120` | 常规 R 分析请求超时秒数 |
+| `R_INGEST_TIMEOUT` | `300` | OpenAlex / 参考文献摄取等长请求超时秒数 |
+| `R_HEALTH_TIMEOUT` | `5` | R 分析服务健康检查超时秒数 |
+| `MAX_UPLOAD_BYTES` | `52428800` | 上传文件大小上限，默认 50 MiB |
+| `CORS_ORIGINS` | `http://localhost:8080,http://localhost:5173` | 逗号分隔的 Agent CORS 允许来源；Compose 默认 `http://localhost:8080` |
+| `DEEPSEEK_API_KEY` | 空 | DeepSeek 兼容 LLM key；为空时使用 FakeLLM / 确定性回退 |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DeepSeek 兼容 LLM API 地址 |
+| `BIBLIOCN_ALLOW_PRIVATE_API_BASE_URLS` | 空 | 默认拒绝 LLM / Sciverse / Image 等用户可配 Base URL 指向 localhost、内网 IP 或 `.local`；确需连接内网兼容 LLM 时设为 `1` / `true` / `yes` / `on` |
+| `REVIEW_RECORDS_LIMIT` | `40` | 综述生成读取的记录数量上限 |
+| `DATABASE_URL` | `postgresql+asyncpg://bibliocn@localhost/bibliocn` | Agent 主数据库连接；Compose 默认指向容器内 Postgres |
+| `TEST_DATABASE_URL` | `postgresql+asyncpg://bibliocn@localhost/bibliocn_test` | Agent 测试数据库连接 |
+| `OCR_AUTHORIZATION_TOKEN` | 空 | MinerU OCR 授权 token；为空时真实全文解析能力不可用 |
+| `MINERU_BASE_URL` | `https://mineru.net/api/v4` | MinerU OCR API 地址 |
+| `SCIVERSE_BASE_URL` | `https://api.sciverse.space` | Sciverse 检索 / 全文 API 地址 |
+| `SCIVERSE_API_TOKEN` | 空 | Sciverse API token；为空时 Sciverse 路径不可用，OpenAlex 仍可用 |
+| `SCIVERSE_TIMEOUT` | `60` | Sciverse 请求超时秒数 |
+| `SCIVERSE_CONTENT_CHUNK_CHARS` | `7000` | Sciverse 全文分块字符数 |
+| `SCIVERSE_CONTENT_MAX_CHARS` | `500000` | Sciverse 单篇全文最大保留字符数 |
+| `IMAGE_API_KEY` | 空 | OpenAI 兼容生图 key；为空时使用 SVG fallback 或仅保存提示词 |
+| `IMAGE_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容生图 API 地址 |
+| `IMAGE_MODEL` | `gpt-image-1` | 生图模型名 |
+| `IMAGE_SIZE` | `1024x1024` | 生图尺寸 |
+| `BIBLIOCN_CORPORA_DIR` | `/tmp/bibliocn_corpora` | 全文 Markdown、RunLog 与指标等语料缓存目录；Compose 默认 `/data/corpora` |
+
+R 分析服务另读一个 OpenAlex 礼貌池变量：
+
+| 变量 | 默认值 | 用途 |
+|---|---|---|
+| `OPENALEX_EMAIL` | `aria-review@users.noreply.github.com` | R 分析服务请求 OpenAlex 时使用的 `mailto` 联系邮箱；根目录 `.env` 会透传给 `r-analysis` |
 
 ---
 

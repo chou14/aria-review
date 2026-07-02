@@ -2,7 +2,7 @@
  * ProjectNav.tsx — 项目内一级导航条（四区）
  * 位于 TopBar 下方，随 ProjectShell 渲染
  * 4 项：对话(index) / 文献库(library) / 分析(analysis) / 产出(output)
- * 使用 NavLink 激活态：--cinnabar 下划线，沿用 ProjectWorkbench 现有 tab 样式
+ * 使用 NavLink 激活态：--cinnabar 下划线。
  */
 import { NavLink, useParams } from "react-router-dom";
 

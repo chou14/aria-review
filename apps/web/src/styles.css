@@ -3000,6 +3000,14 @@ ul.clean { list-style: none; padding: 0; margin: 0; }
   overflow-wrap: anywhere;
 }
 .candidate-cards-sel-hint { font-size: 0.78rem; }
+.candidate-partial-note {
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--warn);
+  background: rgba(184, 121, 26, 0.08);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 
 .candidate-cards-empty {
   padding: 1rem;
@@ -3118,10 +3126,48 @@ ul.clean { list-style: none; padding: 0; margin: 0; }
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
   padding: 0.6rem 1rem;
   background: rgba(47, 125, 79, 0.06);
   border-top: 1px solid rgba(47, 125, 79, 0.15);
   font-size: 0.85rem;
+}
+.candidate-failed-panel {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding-top: 0.2rem;
+}
+.candidate-failed-details {
+  flex: 1 1 280px;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.candidate-failed-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.candidate-failed-details ul {
+  margin: 0.45rem 0 0;
+  padding-left: 1rem;
+}
+.candidate-failed-details li {
+  margin: 0.28rem 0;
+  overflow-wrap: anywhere;
+}
+.candidate-failed-title {
+  font-weight: 600;
+}
+.candidate-failed-reason {
+  display: block;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+}
+.candidate-failed-panel .btn {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
 }
 .candidate-error {
   padding: 0.6rem 1rem;

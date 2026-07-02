@@ -1,14 +1,13 @@
-"""P3-3 Step 1 — MinerU `_safe_name` 多格式扩展名保留测试。
+"""MinerU `_safe_name` 扩展名保留测试。
 
-MinerU 2.5+ 支持 Word/PPT/HTML（§0.6 多格式同管线）。`_safe_name` 在文件名超长
-（>120 字符）时截断 stem，但**必须保留原扩展名**——MinerU 按扩展名判文件类型，
-旧实现把所有截断名强制改成 `.pdf`，会让 .docx/.pptx/.html 报「unsupported file type」
-（且批量提交原子，一个坏名整批全失败）。
+`_safe_name` 在文件名超长（>120 字符）时截断 stem，但必须保留原扩展名，避免
+上游按错误文件类型解析。该测试只覆盖通用文件名工具行为，不代表产品上传入口
+支持对应格式。
 
 校验：
   - 短名（≤120）原样返回，不改。
   - 长 .pdf 截断后仍以 .pdf 结尾，且总长 ≤120。
-  - 长 .docx / .pptx / .html 截断后保留各自扩展名（先红：旧实现对 .docx 返回 .pdf）。
+  - 长非 PDF 后缀截断后保留各自扩展名。
 """
 from __future__ import annotations
 

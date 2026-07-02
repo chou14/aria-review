@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { aiScreen } from "../api/client";
 import type { ScreenResult } from "../api/client";
+import type { RCorpusId } from "../api/corpusIds";
 import { useLlmSettings } from "../api/useLlmSettings";
 import { ChartCard, DataTable, InsufficientData } from "./viz";
 import type { DataTableColumn } from "./viz";
@@ -129,7 +130,7 @@ const columns: DataTableColumn<ScreenRow>[] = [
   },
 ];
 
-export function ScreenPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function ScreenPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const [topic, setTopic] = useState("");
   const [limit, setLimit] = useState(10);
 

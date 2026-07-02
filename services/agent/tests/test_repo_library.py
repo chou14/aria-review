@@ -80,3 +80,42 @@ async def test_add_paper_doi_url_prefix_idempotent(session):
     p3 = await add_paper(session, {"title": "URL Prefix Test", "doi": "http://dx.doi.org/10.1/url"})
     assert p1.id == p2.id, "https://doi.org/ 前缀应被剥离"
     assert p1.id == p3.id, "http://dx.doi.org/ 前缀应被剥离"
+
+
+async def test_add_paper_backfills_doi_for_existing_title_track(session):
+    """同一文献先无 DOI 后有 DOI：回填旧行，不新建第二行。"""
+    from sqlalchemy import func, select
+
+    from app.models import Paper
+    from app.repositories.library import add_paper
+
+    p1 = await add_paper(session, {"title": "Dual Track Paper", "year": 2023})
+    old_key = p1.dedup_key
+
+    p2 = await add_paper(
+        session,
+        {"title": "Dual Track Paper", "doi": "https://doi.org/10.1/dual", "abstract": "abs"},
+    )
+    count = (await session.execute(select(func.count()).select_from(Paper))).scalar_one()
+
+    assert p2.id == p1.id
+    assert count == 1
+    assert p2.doi == "https://doi.org/10.1/dual"
+    assert p2.dedup_key == "doi:10.1/dual"
+    assert p2.dedup_key != old_key
+    assert p2.abstract == "abs"
+
+
+async def test_add_paper_same_title_different_doi_creates_two_rows(session):
+    """旧记录已有不同 DOI 时，同标题不同 DOI 仍按不同文献入库。"""
+    from sqlalchemy import func, select
+
+    from app.models import Paper
+    from app.repositories.library import add_paper
+
+    p1 = await add_paper(session, {"title": "Same Title", "doi": "10.1/one"})
+    p2 = await add_paper(session, {"title": "Same Title", "doi": "10.1/two"})
+    count = (await session.execute(select(func.count()).select_from(Paper))).scalar_one()
+
+    assert p2.id != p1.id
+    assert count == 2

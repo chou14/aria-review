@@ -13,6 +13,7 @@ import unicodedata
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Attachment, Note, Paper, PaperExternalId, PaperTag, ProjectPaper, Tag
@@ -109,6 +110,12 @@ def _normalize_doi(raw: str) -> str:
     return stripped.strip().lower()
 
 
+def _normalize_title_for_dedup(raw_title: str) -> str:
+    """与 compute_dedup_key 标题轨保持一致的标题规范化。"""
+    nfc_title = unicodedata.normalize("NFC", raw_title)
+    return re.sub(r"\W+", "", nfc_title.lower())
+
+
 def compute_dedup_key(data: dict) -> str:
     """根据 doi 或标题 hash 计算去重键。
 
@@ -119,8 +126,7 @@ def compute_dedup_key(data: dict) -> str:
     if doi:
         return f"doi:{_normalize_doi(doi)}"
     raw_title = data.get("title") or ""
-    nfc_title = unicodedata.normalize("NFC", raw_title)
-    norm = re.sub(r"\W+", "", nfc_title.lower())
+    norm = _normalize_title_for_dedup(raw_title)
     return "title:" + hashlib.sha256(norm.encode()).hexdigest()[:32]
 
 
@@ -137,52 +143,12 @@ async def find_by_dedup(
     return (await s.execute(q)).scalar_one_or_none()
 
 
-async def add_paper(
+async def _fill_missing_fields(
     s: AsyncSession,
-    data: dict,
-    owner_id: int | None = None,
+    paper: Paper,
+    safe_fields: dict,
 ) -> Paper:
-    """幂等写入 Paper：命中 dedup 直接返回已有行；否则 INSERT 并返回新行。
-
-    使用 INSERT ... ON CONFLICT DO NOTHING 后 SELECT，保证并发安全、DB 层真去重。
-    - owner_id 为 None 时：冲突目标为部分唯一索引 uq_paper_dedup_null_owner（dedup_key WHERE owner_id IS NULL）。
-    - owner_id 非 None 时：冲突目标为复合唯一约束 uq_paper_dedup（dedup_key, owner_id）。
-
-    data 支持 Paper 所有列字段（多余字段忽略）。
-    """
-    key = compute_dedup_key(data)
-
-    # 只保留 ORM 列字段，去掉 id/dedup_key/owner_id（单独传）
-    safe_fields = {
-        k: v for k, v in data.items()
-        if k in _PAPER_COLS and k not in ("id", "dedup_key", "owner_id",
-                                           "created_at", "updated_at")
-    }
-
-    if owner_id is None:
-        stmt = (
-            pg_insert(Paper)
-            .values(dedup_key=key, owner_id=None, **safe_fields)
-            .on_conflict_do_nothing(
-                index_elements=["dedup_key"],
-                index_where=text("owner_id IS NULL"),
-            )
-        )
-    else:
-        stmt = (
-            pg_insert(Paper)
-            .values(dedup_key=key, owner_id=owner_id, **safe_fields)
-            .on_conflict_do_nothing(constraint="uq_paper_dedup")
-        )
-
-    await s.execute(stmt)
-    await s.commit()
-
-    # 无论是否新插入，都 SELECT 返回（幂等）。若命中已有记录，只补全空字段，不覆盖已有值。
-    paper = await find_by_dedup(s, key, owner_id)
-    if paper is None:
-        return paper
-
+    """把 incoming 元数据补进已有 Paper；只补空值，不覆盖已有人工数据。"""
     changed = False
     for field, value in safe_fields.items():
         if field in {"title", "dedup_key", "owner_id"} or _is_missing_value(value):
@@ -208,6 +174,83 @@ async def add_paper(
         await s.commit()
         await s.refresh(paper)
     return paper
+
+
+async def add_paper(
+    s: AsyncSession,
+    data: dict,
+    owner_id: int | None = None,
+) -> Paper:
+    """幂等写入 Paper：命中 dedup 直接返回已有行；否则 INSERT 并返回新行。
+
+    使用 INSERT ... ON CONFLICT DO NOTHING 后 SELECT，保证并发安全、DB 层真去重。
+    - owner_id 为 None 时：冲突目标为部分唯一索引 uq_paper_dedup_null_owner（dedup_key WHERE owner_id IS NULL）。
+    - owner_id 非 None 时：冲突目标为复合唯一约束 uq_paper_dedup（dedup_key, owner_id）。
+
+    data 支持 Paper 所有列字段（多余字段忽略）。
+    """
+    key = compute_dedup_key(data)
+
+    # 只保留 ORM 列字段，去掉 id/dedup_key/owner_id（单独传）
+    safe_fields = {
+        k: v for k, v in data.items()
+        if k in _PAPER_COLS and k not in ("id", "dedup_key", "owner_id",
+                                           "created_at", "updated_at")
+    }
+
+    paper = await find_by_dedup(s, key, owner_id)
+    if paper is not None:
+        return await _fill_missing_fields(s, paper, safe_fields)
+
+    # DOI key 未命中时，回查同标题的旧 title 轨记录。若旧记录 DOI 为空，
+    # 说明它是同一篇文献的早期低信息版本，直接原行升级，避免双轨重复入库。
+    incoming_doi = (data.get("doi") or "").strip()
+    incoming_title = data.get("title") or ""
+    if incoming_doi and _normalize_title_for_dedup(incoming_title):
+        title_key = compute_dedup_key({"title": incoming_title})
+        title_paper = await find_by_dedup(s, title_key, owner_id)
+        if title_paper is not None and not (title_paper.doi or "").strip():
+            title_paper.dedup_key = key
+            if "doi" in safe_fields:
+                title_paper.doi = safe_fields["doi"]
+            try:
+                await s.commit()
+            except IntegrityError:
+                # 并发窗口：另一请求在 find_by_dedup 之后已先建了同 DOI 轨行，
+                # 升级 dedup_key 撞 uq_paper_dedup。回滚后按 DOI key 重查取胜者行。
+                await s.rollback()
+                winner = await find_by_dedup(s, key, owner_id)
+                if winner is not None:
+                    return await _fill_missing_fields(s, winner, safe_fields)
+                raise
+            await s.refresh(title_paper)
+            return await _fill_missing_fields(s, title_paper, safe_fields)
+
+    if owner_id is None:
+        stmt = (
+            pg_insert(Paper)
+            .values(dedup_key=key, owner_id=None, **safe_fields)
+            .on_conflict_do_nothing(
+                index_elements=["dedup_key"],
+                index_where=text("owner_id IS NULL"),
+            )
+        )
+    else:
+        stmt = (
+            pg_insert(Paper)
+            .values(dedup_key=key, owner_id=owner_id, **safe_fields)
+            .on_conflict_do_nothing(constraint="uq_paper_dedup")
+        )
+
+    await s.execute(stmt)
+    await s.commit()
+
+    # 无论是否新插入，都 SELECT 返回（幂等）。若命中已有记录，只补全空字段，不覆盖已有值。
+    paper = await find_by_dedup(s, key, owner_id)
+    if paper is None:
+        return paper
+
+    return await _fill_missing_fields(s, paper, safe_fields)
 
 
 async def get_by_id(

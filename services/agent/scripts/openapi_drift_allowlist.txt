@@ -1,0 +1,8 @@
+# 内部/框架路由：不进入 packages/contracts/openapi.yaml 公共契约。
+GET /docs
+GET /docs/oauth2-redirect
+GET /openapi.json
+GET /redoc
+
+# 静态生成资产下载：前端只拼 URL 使用，不生成 DTO。
+GET /ai/assets/infographics/{filename}

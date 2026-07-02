@@ -1,7 +1,10 @@
 // 类型化 API 客户端。类型由 packages/contracts/openapi.yaml 生成 (单一真源, Codex-10)。
 // 生成: pnpm gen:api → src/api/schema.d.ts
 import type { components } from "./schema";
-import type { StructureResponse, ProvenanceMap } from "../types/provenance";
+import type { BrandCorpusIdFields, RCorpusId } from "./corpusIds";
+import type { RunStatus } from "./runStatus";
+import { normalizeRunStatus } from "./runStatus";
+import type { ProvenanceMap, StructureResponse as ProvenanceStructureResponse } from "../types/provenance";
 import type {
   GapCandidate,
   GapDiscoverAccepted,
@@ -42,24 +45,104 @@ export type ThreeFieldEnvelope = components["schemas"]["ThreeFieldEnvelope"];
 const DEFAULT_API_BASE = import.meta.env?.DEV ? "http://localhost:8000" : "/api";
 const BASE: string =
   ((import.meta.env?.VITE_API_BASE as string | undefined) || "").trim() || DEFAULT_API_BASE;
+export const API_BASE = BASE;
 
 export class ApiError extends Error {
+  public readonly friendlyMessage?: string;
+  public readonly originalMessage?: string;
+  public readonly isFriendly?: boolean;
+
   constructor(
     public code: string,
     public status: number,
     message: string,
+    options: {
+      friendlyMessage?: string;
+      originalMessage?: string;
+      isFriendly?: boolean;
+    } = {},
   ) {
     super(message);
     this.name = "ApiError";
+    this.friendlyMessage = options.friendlyMessage;
+    this.originalMessage = options.originalMessage;
+    this.isFriendly = options.isFriendly;
   }
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "网络请求失败";
+}
+
+function makeBackendUnavailableError(error: unknown): ApiError {
+  const originalMessage = getErrorMessage(error);
+  const friendlyMessage = `无法连接后端服务（${BASE}）。请确认后端服务已启动，或在项目根目录运行 docker compose up -d 后重试。`;
+  return new ApiError("NETWORK_ERROR", 0, friendlyMessage, {
+    friendlyMessage,
+    originalMessage,
+    isFriendly: true,
+  });
+}
+
+const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
+const LONG_TASK_FETCH_TIMEOUT_MS = 120_000;
+const STREAM_FETCH_TIMEOUT_MS = false;
+
+type ApiFetchInit = RequestInit & {
+  /** false 表示流式端点不加自动超时，只接受调用方显式 signal。 */
+  timeoutMs?: number | false;
+};
+
+function makeRequestTimeoutError(timeoutMs: number): ApiError {
+  const friendlyMessage = "请求超时，可重试";
+  return new ApiError("NETWORK_ERROR", 0, friendlyMessage, {
+    friendlyMessage,
+    originalMessage: `Request timed out after ${timeoutMs}ms`,
+    isFriendly: true,
+  });
+}
+
 // 网络层失败也归一为 ApiError, 调用方只需处理一种错误类型 (Codex step4-P2)
-async function doFetch(input: string, init?: RequestInit): Promise<Response> {
+async function doFetch(input: string, init: ApiFetchInit = {}): Promise<Response> {
+  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, signal, ...fetchInit } = init;
+  if (timeoutMs === false) {
+    try {
+      return await fetch(input, { ...fetchInit, signal });
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      throw makeBackendUnavailableError(e);
+    }
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  let callerAborted = signal?.aborted ?? false;
+  const onAbort = () => {
+    callerAborted = true;
+    controller.abort(signal?.reason);
+  };
+  if (signal?.aborted) {
+    controller.abort(signal.reason);
+  } else {
+    signal?.addEventListener("abort", onAbort, { once: true });
+  }
+  const timeoutId = setTimeout(() => {
+    if (callerAborted || controller.signal.aborted) return;
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
   try {
-    return await fetch(input, init);
+    return await fetch(input, { ...fetchInit, signal: controller.signal });
   } catch (e) {
-    throw new ApiError("NETWORK_ERROR", 0, (e as Error).message || "网络错误");
+    if (callerAborted) throw e;
+    if (timedOut) throw makeRequestTimeoutError(timeoutMs);
+    throw makeBackendUnavailableError(e);
+  } finally {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -156,7 +239,11 @@ export async function createCorpus(
   fd.append("file", file);
   fd.append("dbsource", dbsource);
   return handle<CorpusRef>(
-    await doFetch(`${BASE}/projects/${enc(projectId)}/corpus`, { method: "POST", body: fd }),
+    await doFetch(`${BASE}/projects/${enc(projectId)}/corpus`, {
+      method: "POST",
+      body: fd,
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
   );
 }
 
@@ -177,6 +264,7 @@ export async function createFromTopic(projectId: string, req: TopicReq): Promise
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -197,6 +285,7 @@ export async function createFromRefs(
       method: "POST",
       headers,
       body: JSON.stringify({ text, withRefs }),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -253,26 +342,26 @@ export async function loadDemo(projectId: string): Promise<CorpusRef> {
 
 export async function getOverview(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<OverviewResult> {
   return handle<OverviewResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/overview`),
   );
 }
 
-export async function getSources(projectId: string, corpusId: string): Promise<SourcesResult> {
+export async function getSources(projectId: string, corpusId: RCorpusId): Promise<SourcesResult> {
   return handle<SourcesResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/sources`),
   );
 }
 
-export async function getAuthors(projectId: string, corpusId: string): Promise<AuthorsResult> {
+export async function getAuthors(projectId: string, corpusId: RCorpusId): Promise<AuthorsResult> {
   return handle<AuthorsResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/authors`),
   );
 }
 
-export async function getDocuments(projectId: string, corpusId: string): Promise<DocumentsResult> {
+export async function getDocuments(projectId: string, corpusId: RCorpusId): Promise<DocumentsResult> {
   return handle<DocumentsResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/documents`),
   );
@@ -282,7 +371,7 @@ export async function getDocuments(projectId: string, corpusId: string): Promise
 
 export async function getAuthorProduction(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<AuthorProductionEnvelope> {
   return handle<AuthorProductionEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/authors/production`),
@@ -291,7 +380,7 @@ export async function getAuthorProduction(
 
 export async function getKeywordTrend(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<KeywordTrendEnvelope> {
   return handle<KeywordTrendEnvelope>(
     await doFetch(
@@ -302,7 +391,7 @@ export async function getKeywordTrend(
 
 export async function getCitedRefs(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<CitedRefsEnvelope> {
   return handle<CitedRefsEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/documents/cited-refs`),
@@ -313,7 +402,7 @@ export async function getCitedRefs(
 
 export async function getThematic(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<ThematicEnvelope> {
   return handle<ThematicEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/conceptual/thematic`),
@@ -322,7 +411,7 @@ export async function getThematic(
 
 export async function getEvolution(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<EvolutionEnvelope> {
   return handle<EvolutionEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/conceptual/evolution`),
@@ -331,7 +420,7 @@ export async function getEvolution(
 
 export async function getHistcite(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<HistciteEnvelope> {
   return handle<HistciteEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/intellectual/histcite`),
@@ -340,7 +429,7 @@ export async function getHistcite(
 
 export async function getThreeField(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
 ): Promise<ThreeFieldEnvelope> {
   return handle<ThreeFieldEnvelope>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/overview/threefield`),
@@ -348,19 +437,19 @@ export async function getThreeField(
 }
 
 // 网络端点请求 top100 (A5 §4.4): 后端给到 100, 前端滑块才能真正切到 100。
-export async function getConceptual(projectId: string, corpusId: string): Promise<NetworkResult> {
+export async function getConceptual(projectId: string, corpusId: RCorpusId): Promise<NetworkResult> {
   return handle<NetworkResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/conceptual?limit=100`),
   );
 }
 
-export async function getIntellectual(projectId: string, corpusId: string): Promise<NetworkResult> {
+export async function getIntellectual(projectId: string, corpusId: RCorpusId): Promise<NetworkResult> {
   return handle<NetworkResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/intellectual?limit=100`),
   );
 }
 
-export async function getSocial(projectId: string, corpusId: string): Promise<SocialResult> {
+export async function getSocial(projectId: string, corpusId: RCorpusId): Promise<SocialResult> {
   return handle<SocialResult>(
     await doFetch(`${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/social?limit=100`),
   );
@@ -372,6 +461,7 @@ export async function buildPrisma(projectId: string, req: PrismaRequest): Promis
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -381,7 +471,7 @@ export type ReportFormat = "md" | "html" | "docx";
 export type ReportOptions = components["schemas"]["ReportOptions"];
 export type ReportSection = NonNullable<ReportOptions["sections"]>[number];
 
-export function reportUrl(projectId: string, corpusId: string, format: ReportFormat): string {
+export function reportUrl(projectId: string, corpusId: RCorpusId, format: ReportFormat): string {
   return `${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/report?format=${format}`;
 }
 
@@ -397,7 +487,7 @@ function filenameFromDisposition(disposition: string | null, fallback: string): 
 // A7: POST + ReportOptions (title/author/sections/可选 prismaCounts/reviewMarkdown); format 走 query。
 export async function downloadReport(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
   format: ReportFormat,
   options?: ReportOptions,
 ): Promise<void> {
@@ -405,6 +495,7 @@ export async function downloadReport(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options ?? {}),
+    timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
   });
   if (!res.ok) {
     await handle(res); // 抛 ApiError (含 503 PANDOC_UNAVAILABLE → UI 据此降级)
@@ -440,7 +531,14 @@ async function _postJson<T>(path: string, body: unknown, llm?: LlmRequestOptions
     { "Content-Type": "application/json" },
     typeof llm === "string" ? { apiKey: llm } : llm,
   );
-  return handle<T>(await doFetch(`${BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body) }));
+  return handle<T>(
+    await doFetch(`${BASE}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
+  );
 }
 
 export function aiTranslate(p: string, text: string, direction: "en2zh" | "zh2en", llm?: LlmRequestOptions | string) {
@@ -459,41 +557,15 @@ export function aiSummary(p: string, text: string, llm?: LlmRequestOptions | str
   return _postJson<TextResult>(`/projects/${enc(p)}/ai/summary`, { text }, llm);
 }
 
-export type AiJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
-export type AiJobKind = "review" | "chat" | "summary" | "translate" | "rewrite" | "infographic_prompt" | "infographic_image" | "gap_discover";
-
-export interface AiJob {
-  id: number;
-  projectId: number;
-  corpusId?: string | null;
-  kind: AiJobKind;
-  status: AiJobStatus;
-  request?: Record<string, unknown> | null;
-  resultText: string;
-  annotatedText?: string | null;
-  summary?: CiteSummary | Record<string, unknown> | null;
-  events: Array<{ event: string; data?: Record<string, unknown> }>;
-  error?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  completedAt?: string | null;
-  // 引用溯源（契约 §2.3/§5.6）：综述结果附带的 anchor_id → 定位映射。
-  // Track A 接入后非空 → 前端渲染可溯源综述；缺省时优雅降级为纯文本。
+export type AiJobStatus = components["schemas"]["AiJobStatus"];
+export type AiJobKind = components["schemas"]["AiJobKind"];
+export type AiJob = components["schemas"]["AiJobItem"] & {
+  // 后端可能按 snake_case 返回，normalizeAiJob 会提升为 provenanceMap。
   provenanceMap?: ProvenanceMap | null;
-}
-
-export type AiJobCreate = {
-  kind: AiJobKind;
-  corpusId?: string | null;
-  type?: string;
-  topic?: string;
-  query?: string;
+};
+export type AiJobCreate = Omit<components["schemas"]["AiJobCreateRequest"], "corpusId"> & {
+  corpusId?: RCorpusId | null;
   history?: ChatMessage[];
-  text?: string;
-  direction?: "en2zh" | "zh2en";
-  action?: string;
-  style?: string;
-  imagePrompt?: string;
 };
 
 export async function createAiJob(
@@ -516,6 +588,7 @@ export async function createAiJob(
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
       }),
     ),
   );
@@ -534,7 +607,7 @@ export async function getAiJob(p: string, jobId: number) {
   return normalizeAiJob(await handle<AiJob>(await doFetch(`${BASE}/projects/${enc(p)}/ai/jobs/${jobId}`)));
 }
 
-export async function listAiJobs(p: string, params: { kind?: AiJobKind; corpusId?: string; limit?: number } = {}) {
+export async function listAiJobs(p: string, params: { kind?: AiJobKind; corpusId?: RCorpusId; limit?: number } = {}) {
   const qs = new URLSearchParams();
   if (params.kind) qs.set("kind", params.kind);
   if (params.corpusId) qs.set("corpusId", params.corpusId);
@@ -543,7 +616,7 @@ export async function listAiJobs(p: string, params: { kind?: AiJobKind; corpusId
   const res = await handle<{ jobs: AiJob[] }>(await doFetch(`${BASE}/projects/${enc(p)}/ai/jobs${suffix}`));
   return { jobs: res.jobs.map(normalizeAiJob) };
 }
-export function aiScreen(p: string, c: string, topic: string, limit: number, llm?: LlmRequestOptions | string) {
+export function aiScreen(p: string, c: RCorpusId, topic: string, limit: number, llm?: LlmRequestOptions | string) {
   return _postJson<ScreenResult>(`/projects/${enc(p)}/corpus/${enc(c)}/ai/screen`, { topic, limit }, llm);
 }
 
@@ -582,6 +655,8 @@ export async function pingImage(
 
 export interface SciverseMetaSearchResult {
   candidates: SearchCandidate[];
+  partial?: boolean;
+  partialReason?: string | null;
   totalCount?: number | null;
   page?: number | null;
   pageSize?: number | null;
@@ -609,6 +684,7 @@ export async function searchSciverseMeta(
       method: "POST",
       headers,
       body: JSON.stringify(req),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -627,6 +703,7 @@ export async function searchSciverseAgentic(
       method: "POST",
       headers,
       body: JSON.stringify(req),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -645,10 +722,11 @@ export async function fetchSciverseContent(
       method: "POST",
       headers,
       body: JSON.stringify(req),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
-export async function getCite(p: string, c: string, style: "gbt7714" | "apa" | "mla"): Promise<CiteResult> {
+export async function getCite(p: string, c: RCorpusId, style: "gbt7714" | "apa" | "mla"): Promise<CiteResult> {
   return handle<CiteResult>(await doFetch(`${BASE}/projects/${enc(p)}/corpus/${enc(c)}/cite?style=${style}`));
 }
 
@@ -673,11 +751,7 @@ export async function getProjectLibraryStats(pid: number): Promise<ProjectLibrar
 // 项目管理 & SLR Agent 端点类型与函数 (P1-9)
 // ============================================================
 
-export interface Project {
-  id: number;
-  name: string;
-  createdAt: string;
-}
+export type Project = components["schemas"]["ProjectRef"];
 
 /**
  * M2: 项目当前 active corpus 摘要。
@@ -685,37 +759,18 @@ export interface Project {
  * rCorpusId  — R 字符串 ID，调分析端点时透传；status != ready 时为 null。
  * stale      — 当前 included 集合与本 corpus 的 contentHash 不同 → 需重算。
  */
-export interface ActiveCorpus {
-  corpusId: number;
-  rCorpusId: string | null;
-  status: "parsing" | "ready" | "failed";
-  documentCount: number;
-  contentHash: string;
-  stale: boolean;
-}
-
-export interface ProjectDetail {
-  id: number;
-  name: string;
-  researchQuestion?: string;
-  description?: string;
-  paperCount: number;
-  includedCount: number;
-  /** M2: 项目当前 active corpus（最新 ready corpus；无则 null） */
+export type ActiveCorpus = BrandCorpusIdFields<components["schemas"]["ActiveCorpusDetail"]>;
+export type LatestCorpus = BrandCorpusIdFields<components["schemas"]["LatestCorpusDetail"]>;
+export type ProjectDetail = Omit<components["schemas"]["ProjectDetail"], "activeCorpus" | "latestCorpus"> & {
   activeCorpus?: ActiveCorpus | null;
-}
+  latestCorpus?: LatestCorpus | null;
+};
 
 /**
  * M2: POST /projects/{pid}/corpus/materialize 响应体。
  * corpusId/rCorpusId 同 ActiveCorpus；rCorpusId 在 parsing/failed 时为 null。
  */
-export interface CorpusMaterializeResult {
-  corpusId: number;
-  rCorpusId: string | null;
-  status: "parsing" | "ready" | "failed";
-  documentCount: number;
-  contentHash: string;
-}
+export type CorpusMaterializeResult = BrandCorpusIdFields<components["schemas"]["CorpusMaterializeResponse"]>;
 
 export type InclusionStatus = "candidate" | "included" | "excluded" | "maybe";
 
@@ -728,24 +783,18 @@ export type Creator = string | { family?: string; given?: string; literal?: stri
 export type PaperExtractionDto = components["schemas"]["PaperExtractionDto"];
 export type PaperDetail = components["schemas"]["PaperDetail"];
 
-export interface RunRef {
-  runId: string;
-  projectId: number;
-  status: string;
-}
-
-export interface RunDetail {
-  runId: string;
-  status: string;
-  roundsLog?: unknown[];
-  finalOutput?: string;
-  evidenceRefs?: unknown[];
-}
+export type RunRef = components["schemas"]["AgentRunRef"];
+export type RunDetail = Omit<components["schemas"]["RunDetail"], "runId"> & {
+  runId: number | string;
+};
 
 // M2: 物化语料端点 — 从项目 included 论文构建 R 分析语料（幂等）
 export async function materializeCorpus(pid: number): Promise<CorpusMaterializeResult> {
   return handle<CorpusMaterializeResult>(
-    await doFetch(`${BASE}/projects/${pid}/corpus/materialize`, { method: "POST" }),
+    await doFetch(`${BASE}/projects/${pid}/corpus/materialize`, {
+      method: "POST",
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
   );
 }
 
@@ -753,11 +802,7 @@ export async function listProjects(): Promise<{ projects: Project[] }> {
   return handle<{ projects: Project[] }>(await doFetch(`${BASE}/projects`));
 }
 
-export async function createProject(body: {
-  name: string;
-  researchQuestion?: string;
-  description?: string;
-}): Promise<Project> {
+export async function createProject(body: components["schemas"]["ProjectCreateRequest"]): Promise<Project> {
   return handle<Project>(
     await doFetch(`${BASE}/projects`, {
       method: "POST",
@@ -794,12 +839,7 @@ export async function patchInclusion(
 }
 
 // ---- M1: 文献导入端点 ----
-export interface ImportResult {
-  imported: number;
-  skipped: number;
-  failed: Array<{ name: string; reason: string }>;
-  paperIds: number[];
-}
+export type ImportResult = components["schemas"]["PapersImportResponse"];
 
 export async function importPapers(
   pid: number,
@@ -810,7 +850,11 @@ export async function importPapers(
   for (const f of files) fd.append("files", f);
   fd.append("default_status", defaultStatus);
   return handle<ImportResult>(
-    await doFetch(`${BASE}/projects/${pid}/papers/import`, { method: "POST", body: fd }),
+    await doFetch(`${BASE}/projects/${pid}/papers/import`, {
+      method: "POST",
+      body: fd,
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
   );
 }
 
@@ -874,7 +918,10 @@ export interface SearchCandidate {
 export type FromSearchResult = components["schemas"]["FromSearchResult"];
 type FromSearchCandidatePayload = components["schemas"]["FromSearchCandidate"];
 
+export const SEARCH_CANDIDATE_LIMIT = 500;
+
 const FROM_SEARCH_LIMITS = {
+  candidateId: 255,
   title: 1000,
   doi: 255,
   authors: 100,
@@ -932,6 +979,7 @@ export function sanitizeSearchCandidateForImport(c: SearchCandidate): FromSearch
     .slice(0, FROM_SEARCH_LIMITS.authors);
 
   return {
+    candidateId: cleanString(c.candidate_id, FROM_SEARCH_LIMITS.candidateId),
     title,
     doi: cleanString(c.doi, FROM_SEARCH_LIMITS.doi),
     authors: authors.length > 0 ? authors : undefined,
@@ -962,6 +1010,9 @@ export async function addPapersFromSearch(
   candidates: SearchCandidate[],
   defaultStatus: "candidate" | "included" = "candidate",
 ): Promise<FromSearchResult> {
+  if (candidates.length > SEARCH_CANDIDATE_LIMIT) {
+    throw new Error(`检索上限 ${SEARCH_CANDIDATE_LIMIT}，请减少候选数量后重试`);
+  }
   // 映射 SearchCandidate → FromSearchCandidate（schema 字段对齐）
   const mapped = candidates.map(sanitizeSearchCandidateForImport);
   return handle<FromSearchResult>(
@@ -969,6 +1020,7 @@ export async function addPapersFromSearch(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ candidates: mapped, defaultStatus }),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -985,6 +1037,7 @@ export async function backfillMetadata(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ limit: opts.limit ?? 20, onlyMissing: opts.onlyMissing ?? true }),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -1001,6 +1054,7 @@ export async function extractStructured(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ limit: opts.limit ?? 15, reextract: opts.reextract ?? false }),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
 }
@@ -1031,52 +1085,14 @@ export async function cancelRun(pid: number, rid: string): Promise<unknown> {
 
 // P2-3: 可验证运行日志 (runlog/v1)。返回 RunLog JSON, 由 UI 序列化后触发浏览器下载。
 // RunLog 体很大（messages/events/...），UI 只强类型 manifest（其余按需取），其它键宽松。
-export interface RunLogManifest {
-  event_count: number;
-  tool_invocation_count: number;
-  evidence_count: number;
-  fabricated_count: number;
-  chain_head: string;
-  content_sha256: string;
-}
-export interface RunLog {
-  schema_version: string;
-  manifest: RunLogManifest;
-  run?: { id: number; project_id: number; status: string; model_used?: string };
-  [key: string]: unknown;
-}
+export type RunLogManifest = components["schemas"]["RunLogManifest"];
+export type RunLog = components["schemas"]["RunLog"];
 export async function getRunLog(pid: number, rid: string): Promise<RunLog> {
   return handle<RunLog>(await doFetch(`${BASE}/projects/${pid}/agent/runs/${enc(rid)}/runlog`));
 }
 
 // Phase 2: grounding 可信凭证摘要（TrustCard 数据源）。camelCase，三率可为 null（不可评分）。
-export interface RunGroundingSummary {
-  runId: number;
-  status: string;
-  modelUsed: string;
-  createdAt: string | null;
-  manifest: {
-    eventCount: number;
-    toolInvocationCount: number;
-    evidenceCount: number;
-    fabricatedCount: number;
-    chainHead: string;
-    contentSha256: string;
-  };
-  metrics: {
-    groundingAccuracy: number | null;
-    provenanceHitRate: number | null;
-    zeroFabricationRate: number | null;
-    insufficientEvidence: boolean;
-    scoreable: boolean;
-    evidenceCount: number;
-    fabricatedCount: number;
-    greenCount: number;
-    yellowCount: number;
-  };
-  corpusHashCount: number;
-  verifyHint: string;
-}
+export type RunGroundingSummary = components["schemas"]["RunGroundingSummary"];
 export async function getGrounding(
   pid: number,
   rid: number | string,
@@ -1087,13 +1103,8 @@ export async function getGrounding(
 }
 
 // P3: MinerU 解析全文（Markdown）—— 文献详情按需展开拉取。
-export interface PaperMarkdown {
-  available: boolean;
-  markdown: string;
-  length: number;
-  truncated: boolean;
-  sha256: string | null;
-}
+export type PaperMarkdown = components["schemas"]["PaperMarkdown"];
+export type StructureResponse = components["schemas"]["StructureResponse"] & ProvenanceStructureResponse;
 export async function getPaperMarkdown(
   pid: number,
   paperId: number,
@@ -1115,16 +1126,8 @@ export async function getStructure(
 }
 
 // 语料质检报告（F5）。项目作用域；by_type 为问题分类计数，issues 可点回链 paper。
-export interface QualityIssue {
-  paper_id: number;
-  type: string; // missing_metadata | duplicate | not_parsed | ...
-  detail: string;
-}
-export interface QualityReport {
-  total: number;
-  by_type: Record<string, number>;
-  issues: QualityIssue[];
-}
+export type QualityIssue = components["schemas"]["QualityIssue"];
+export type QualityReport = components["schemas"]["QualityReport"];
 export async function getQualityReport(pid: number): Promise<QualityReport> {
   return handle<QualityReport>(await doFetch(`${BASE}/projects/${pid}/quality-report`));
 }
@@ -1133,37 +1136,11 @@ export async function getQualityReport(pid: number): Promise<QualityReport> {
 // M4: 工件 (Artifact) CRUD
 // ============================================================
 
-export interface ArtifactItem {
-  id: number;
-  projectId: number;
-  runId?: number | null;
-  type: string; // review|analysis|extraction|paperset
-  title: string;
-  sourceEventSeq?: number | null;
-  contentRef?: string | null;
-  pinned: boolean;
-  userAnnotation?: string | null;
-  order: number;
-  createdAt?: string | null;
-}
-
-export interface ArtifactCreateBody {
-  type?: string;
-  title?: string;
-  runId?: number | null;
-  sourceEventSeq?: number | null;
-  contentRef?: string | null;
-  pinned?: boolean;
-  userAnnotation?: string | null;
-  order?: number;
-}
-
-export interface ArtifactPatchBody {
-  title?: string;
-  pinned?: boolean;
-  userAnnotation?: string | null;
-  order?: number;
-}
+export type ArtifactItem = Omit<components["schemas"]["ArtifactItem"], "runId"> & {
+  runId?: number | string | null;
+};
+export type ArtifactCreateBody = Partial<components["schemas"]["ArtifactCreateRequest"]>;
+export type ArtifactPatchBody = components["schemas"]["ArtifactPatchRequest"];
 
 export async function listArtifacts(
   pid: number,
@@ -1263,7 +1240,7 @@ export interface AgentRoundCompleteEvent {
 
 export interface AgentRunCompleteEvent {
   type: "run_complete";
-  status: string;
+  status: RunStatus;
   final_output: string;
   seq: number;
 }
@@ -1278,19 +1255,19 @@ export interface AgentErrorEvent {
 // cancelled 为终态（SSE 收到即关流）。
 export interface AgentPausedEvent {
   type: "paused";
-  status: string;
+  status: RunStatus;
   seq: number;
 }
 
 export interface AgentResumedEvent {
   type: "resumed";
-  status: string;
+  status: RunStatus;
   seq: number;
 }
 
 export interface AgentCancelledEvent {
   type: "cancelled";
-  status: string;
+  status: RunStatus;
   seq: number;
 }
 
@@ -1309,6 +1286,8 @@ export interface AgentSearchResultsEvent {
   type: "search_results";
   candidates: SearchCandidate[];
   query: string;
+  partial?: boolean;
+  partialReason?: string | null;
   seq: number;
 }
 
@@ -1420,6 +1399,7 @@ export async function streamAgentRun(
           break;
         case "run_complete":
           receivedTerminal = true;
+          (parsed as AgentRunCompleteEvent).status = normalizeRunStatus((parsed as AgentRunCompleteEvent).status);
           handlers.onRunComplete?.(parsed as AgentRunCompleteEvent);
           break;
         case "error":
@@ -1495,7 +1475,7 @@ async function consumeSse(res: Response, onFrame: (event: string, data: string, 
 
 export async function streamChat(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
   req: { query: string; history: ChatMessage[] },
   opts: LlmRequestOptions,
   handlers: { onToken?: (t: string) => void; onDone?: () => void; onError?: (d: { code: string; message: string }) => void },
@@ -1503,7 +1483,7 @@ export async function streamChat(
   const headers = applyLlmHeaders({ "Content-Type": "application/json" }, opts);
   const res = await doFetch(
     `${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/ai/chat`,
-    { method: "POST", headers, body: JSON.stringify(req) },
+    { method: "POST", headers, body: JSON.stringify(req), timeoutMs: STREAM_FETCH_TIMEOUT_MS },
   );
   if (!res.ok || !res.body) {
     await handle(res);
@@ -1551,7 +1531,7 @@ function dispatchSse(event: string, data: string, h: ReviewHandlers) {
 
 export async function streamReview(
   projectId: string,
-  corpusId: string,
+  corpusId: RCorpusId,
   req: { type: string; topic: string },
   opts: LlmRequestOptions & { signal?: AbortSignal },
   handlers: ReviewHandlers,
@@ -1559,7 +1539,13 @@ export async function streamReview(
   const headers = applyLlmHeaders({ "Content-Type": "application/json" }, opts);
   const res = await doFetch(
     `${BASE}/projects/${enc(projectId)}/corpus/${enc(corpusId)}/review`,
-    { method: "POST", headers, body: JSON.stringify(req), signal: opts.signal },
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(req),
+      signal: opts.signal,
+      timeoutMs: STREAM_FETCH_TIMEOUT_MS,
+    },
   );
   if (!res.ok || !res.body) {
     await handle(res); // 非 200 → 抛 ApiError
@@ -1606,9 +1592,12 @@ export async function streamReview(
 // ============================================================
 
 /** POST :discover — 启动 GAP 发现 run（异步，202 → run_id）。 */
-export async function discoverGaps(pid: number, cid: string): Promise<GapDiscoverAccepted> {
+export async function discoverGaps(pid: number, cid: RCorpusId): Promise<GapDiscoverAccepted> {
   return handle<GapDiscoverAccepted>(
-    await doFetch(`${BASE}/projects/${pid}/corpus/${enc(cid)}/gaps:discover`, { method: "POST" }),
+    await doFetch(`${BASE}/projects/${pid}/corpus/${enc(cid)}/gaps:discover`, {
+      method: "POST",
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
   );
 }
 
@@ -1622,7 +1611,10 @@ export async function getScratchpad(pid: number, rid: string): Promise<Scratchpa
 /** POST :verify — 启动该 GAP 价值核验（异步，202 → verify_run_id）。 */
 export async function verifyGap(pid: number, gapId: string): Promise<GapVerifyAccepted> {
   return handle<GapVerifyAccepted>(
-    await doFetch(`${BASE}/projects/${pid}/gaps/${enc(gapId)}:verify`, { method: "POST" }),
+    await doFetch(`${BASE}/projects/${pid}/gaps/${enc(gapId)}:verify`, {
+      method: "POST",
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
   );
 }
 

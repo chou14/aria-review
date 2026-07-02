@@ -1,3 +1,11 @@
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import time
+
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
@@ -258,6 +266,106 @@ def pytest_configure(config):
         "allow_real_llm_router: 该测试需覆盖 LLMRouter.has_any_key()==True 分支, "
         "opt-out 全局离线强制 (见 _no_real_llm fixture)。",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_r: 启动真实 r-analysis plumber 进程的契约测试；无 Rscript 时自动跳过。",
+    )
+
+
+def _free_local_port() -> int:
+    """向 OS 申请一个临时本地端口，避免占用开发机固定 8001。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+    except PermissionError as exc:
+        pytest.skip(f"当前环境不允许绑定本地端口，跳过真实 r-analysis 契约测试: {exc}")
+
+
+@pytest.fixture(scope="session")
+def real_r_base_url(tmp_path_factory):
+    """启动真实 plumber 服务，供 agent RClient 契约测试使用。
+
+    仅在找不到 Rscript 时 skip；只使用随机端口和独立语料目录，不碰本机 8001。
+    """
+    rscript = shutil.which("Rscript")
+    if rscript is None:
+        pytest.skip("未找到 Rscript，跳过真实 r-analysis 契约测试")
+
+    repo_root = Path(__file__).resolve().parents[3]
+    service_dir = repo_root / "services" / "r-analysis"
+    plumber_file = service_dir / "plumber.R"
+    if not plumber_file.exists():
+        pytest.fail(f"找不到真实 R 服务入口: {plumber_file}")
+
+    port = _free_local_port()
+    base_url = f"http://127.0.0.1:{port}"
+    corpora_dir = tmp_path_factory.mktemp("real-r-corpora")
+    log_dir = tmp_path_factory.mktemp("real-r-logs")
+    log_path = log_dir / "plumber.log"
+
+    env = os.environ.copy()
+    renv_lib = repo_root / "legacy-shiny" / "renv" / "library" / "R-4.3" / "x86_64-pc-linux-gnu"
+    if renv_lib.exists():
+        prior = env.get("R_LIBS")
+        env["R_LIBS"] = str(renv_lib) if not prior else f"{renv_lib}{os.pathsep}{prior}"
+    env["BIBLIOCN_CORPORA_DIR"] = str(corpora_dir)
+
+    cmd = [
+        rscript,
+        "-e",
+        f'library(plumber); plumber::plumb("plumber.R")$run(host="127.0.0.1", port={port})',
+    ]
+    with log_path.open("w+", encoding="utf-8") as log_file:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(service_dir),
+            env=env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.monotonic() + 60
+        ready = False
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                log_file.seek(0)
+                pytest.fail(
+                    "真实 r-analysis plumber 进程启动失败:\n"
+                    f"{log_file.read()[-4000:]}"
+                )
+            try:
+                resp = httpx.get(f"{base_url}/healthz", timeout=1.0)
+                ready = resp.status_code == 200
+            except httpx.HTTPError:
+                ready = False
+            if ready:
+                break
+            time.sleep(0.5)
+
+        if not ready:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+            log_file.seek(0)
+            pytest.fail(
+                "真实 r-analysis plumber 进程 60 秒内未就绪:\n"
+                f"{log_file.read()[-4000:]}"
+            )
+
+        try:
+            yield base_url
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=10)
 
 
 @pytest.fixture(autouse=True)

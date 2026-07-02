@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { pingImage, pingLlm, pingSciverse } from "../api/client";
 import {
   PROVIDER_DEFAULT_BASE_URLS,
@@ -22,6 +22,29 @@ const PROVIDER_LABELS: { value: LlmProvider; label: string; placeholder: string 
   { value: "anthropic", label: "Anthropic", placeholder: "your_anthropic_api_key_here" },
 ];
 
+type ConnectionErrorLike = {
+  status?: number;
+  code?: string;
+  message?: string;
+  friendlyMessage?: string;
+};
+
+function formatConnectionError(error: unknown, fallback: string): string {
+  const err = error as ConnectionErrorLike;
+  const status = err?.status;
+  const code = err?.code ?? "";
+  const message = err?.friendlyMessage || err?.message || "";
+
+  if (status === 401 || status === 403) return "API Key 无效或无权限，请检查 Key 是否正确。";
+  if (status === 404) return "Base URL 或模型名称错误，请检查接口地址和 Model 配置。";
+  if (status === 429) return "请求频率或额度受限，请稍后重试或检查账户额度。";
+  if (typeof status === "number" && status >= 500) return "上游服务暂时不可用，请稍后重试。";
+  if (status === 0 || code === "NETWORK_ERROR" || /network|fetch|timeout|超时|无法连接/i.test(message)) {
+    return "服务不可达，请确认后端/API 服务已启动，或检查网络连接。";
+  }
+  return message || fallback;
+}
+
 export function SettingsPage() {
   const { settings, save, clear } = useLlmSettings();
   const {
@@ -39,16 +62,19 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [testState, setTestState] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [testMsg, setTestMsg] = useState("");
+  const llmTestSeqRef = useRef(0);
 
   const [sciverseForm, setSciverseForm] = useState<SciverseSettings>(sciverseSettings);
   const [sciverseSaved, setSciverseSaved] = useState(false);
   const [sciverseTestState, setSciverseTestState] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [sciverseTestMsg, setSciverseTestMsg] = useState("");
+  const sciverseTestSeqRef = useRef(0);
 
   const [imageForm, setImageForm] = useState<ImageSettings>(imageSettings);
   const [imageSaved, setImageSaved] = useState(false);
   const [imageTestState, setImageTestState] = useState<"idle" | "testing" | "ok" | "fail">("idle");
   const [imageTestMsg, setImageTestMsg] = useState("");
+  const imageTestSeqRef = useRef(0);
 
   useEffect(() => {
     setForm(settings);
@@ -78,12 +104,14 @@ export function SettingsPage() {
   }
 
   function handleClear() {
+    llmTestSeqRef.current += 1;
     clear();
     setTestState("idle");
     setTestMsg("");
   }
 
   async function handleTest() {
+    const seq = ++llmTestSeqRef.current;
     if (!form.apiKey.trim()) {
       setTestState("fail");
       setTestMsg("请先填写 API Key");
@@ -97,11 +125,13 @@ export function SettingsPage() {
         baseUrl: form.baseUrl.trim() || undefined,
         model: form.model.trim() || undefined,
       });
+      if (seq !== llmTestSeqRef.current) return;
       setTestState("ok");
       setTestMsg(`LLM 可用，model=${res.model}，返回 ${res.content || "(空)"}`);
     } catch (e) {
+      if (seq !== llmTestSeqRef.current) return;
       setTestState("fail");
-      setTestMsg((e as Error).message || "LLM 测试失败，请检查 Base URL / Key / Model");
+      setTestMsg(formatConnectionError(e, "LLM 测试失败，请检查 Base URL / Key / Model"));
     }
   }
 
@@ -112,12 +142,14 @@ export function SettingsPage() {
   }
 
   function handleSciverseClear() {
+    sciverseTestSeqRef.current += 1;
     clearSciverse();
     setSciverseTestState("idle");
     setSciverseTestMsg("");
   }
 
   async function handleSciverseTest() {
+    const seq = ++sciverseTestSeqRef.current;
     if (!sciverseForm.apiToken.trim()) {
       setSciverseTestState("fail");
       setSciverseTestMsg("请先填写 Sciverse API Token");
@@ -130,11 +162,13 @@ export function SettingsPage() {
         apiToken: sciverseForm.apiToken.trim(),
         baseUrl: sciverseForm.baseUrl.trim() || undefined,
       });
+      if (seq !== sciverseTestSeqRef.current) return;
       setSciverseTestState("ok");
       setSciverseTestMsg(`Sciverse 可用，baseUrl=${res.baseUrl}，测试返回 ${res.resultCount} 条`);
     } catch (e) {
+      if (seq !== sciverseTestSeqRef.current) return;
       setSciverseTestState("fail");
-      setSciverseTestMsg((e as Error).message || "Sciverse 测试失败，请检查 Base URL / Token");
+      setSciverseTestMsg(formatConnectionError(e, "Sciverse 测试失败，请检查 Base URL / Token"));
     }
   }
 
@@ -145,12 +179,14 @@ export function SettingsPage() {
   }
 
   function handleImageClear() {
+    imageTestSeqRef.current += 1;
     clearImage();
     setImageTestState("idle");
     setImageTestMsg("");
   }
 
   async function handleImageTest() {
+    const seq = ++imageTestSeqRef.current;
     if (!imageForm.apiKey.trim()) {
       setImageTestState("fail");
       setImageTestMsg("请先填写生图 API Key");
@@ -165,11 +201,13 @@ export function SettingsPage() {
         model: imageForm.model.trim() || undefined,
         size: imageForm.size.trim() || undefined,
       });
+      if (seq !== imageTestSeqRef.current) return;
       setImageTestState("ok");
       setImageTestMsg(`生图模型可用：model=${res.model}，size=${res.size}`);
     } catch (e) {
+      if (seq !== imageTestSeqRef.current) return;
       setImageTestState("fail");
-      setImageTestMsg((e as Error).message || "生图模型测试失败，请检查 Base URL / Key / Model");
+      setImageTestMsg(formatConnectionError(e, "生图模型测试失败，请检查 Base URL / Key / Model"));
     }
   }
 
@@ -239,7 +277,7 @@ export function SettingsPage() {
             style={{ width: "100%", boxSizing: "border-box" }}
           />
           <p className="muted" style={{ fontSize: "0.78rem", marginTop: "0.25rem" }}>
-            OpenAI 兼容接口地址，后端会请求 <code>/chat/completions</code>
+            OpenAI 兼容接口地址，后端会请求 <code>/chat/completions</code>；内网地址默认会被拒绝，确需使用时在 Agent 环境中开启 <code>BIBLIOCN_ALLOW_PRIVATE_API_BASE_URLS</code>。
           </p>
         </div>
 
@@ -263,7 +301,7 @@ export function SettingsPage() {
           <button type="button" className="btn btn-ghost" onClick={handleClear}>
             清除
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => void handleTest()} disabled={testState === "testing"}>
+          <button type="button" className="btn btn-ghost" onClick={() => void handleTest()}>
             {testState === "testing" ? "测试中..." : "测试连接"}
           </button>
         </div>
@@ -323,7 +361,6 @@ export function SettingsPage() {
             type="button"
             className="btn btn-ghost"
             onClick={() => void handleSciverseTest()}
-            disabled={sciverseTestState === "testing"}
           >
             {sciverseTestState === "testing" ? "测试中..." : "测试连接"}
           </button>
@@ -408,7 +445,6 @@ export function SettingsPage() {
             type="button"
             className="btn btn-ghost"
             onClick={() => void handleImageTest()}
-            disabled={imageTestState === "testing"}
           >
             {imageTestState === "testing" ? "测试中..." : "测试生图连接"}
           </button>

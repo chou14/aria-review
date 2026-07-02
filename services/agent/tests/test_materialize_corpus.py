@@ -136,6 +136,7 @@ async def test_get_project_active_corpus_null_before_materialize(aclient):
     assert r.status_code == 200
     body = r.json()
     assert body["activeCorpus"] is None
+    assert body["latestCorpus"] is None
 
 
 @pytest.mark.asyncio
@@ -159,6 +160,11 @@ async def test_get_project_active_corpus_after_materialize(aclient):
     assert ac["rCorpusId"] == mat.json()["rCorpusId"]
     assert ac["documentCount"] == 2
     assert ac["stale"] is False    # 纳入集未变，不 stale
+    lc = body["latestCorpus"]
+    assert lc is not None
+    assert lc["status"] == "ready"
+    assert lc["corpusId"] == mat.json()["corpusId"]
+    assert lc["errorReason"] is None
 
 
 @pytest.mark.asyncio
@@ -218,5 +224,81 @@ async def test_materialize_r_missing_corpus_id_502(session_factory):
             # active corpus 不应为 ready
             gr = await c.get(f"/projects/{pid}")
             assert gr.json()["activeCorpus"] is None
+            latest = gr.json()["latestCorpus"]
+            assert latest["status"] == "failed"
+            assert latest["errorReason"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_materialize_failed_latest_corpus_keeps_old_active(session_factory):
+    """R 报错后 latestCorpus 暴露 failed/errorReason，activeCorpus 仍指向旧 ready。"""
+    class _FlakyR:
+        def __init__(self):
+            self.calls = 0
+
+        async def parse_from_records(self, records: list):
+            self.calls += 1
+            if self.calls == 1:
+                return 200, {
+                    "corpusId": "ready-from-r",
+                    "status": "ready",
+                    "documentCount": len(records),
+                }
+            return 422, {
+                "status": "failed",
+                "code": "PARSE_FAILED",
+                "error": "mock R parse failure",
+            }
+
+    r_client = _FlakyR()
+
+    async def _test_session():
+        async with session_factory() as s:
+            yield s
+
+    app.dependency_overrides[get_r_client] = lambda: r_client
+    app.dependency_overrides[get_session] = _test_session
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            pid = await _make_project_with_included(session_factory, 1)
+
+            ok = await c.post(f"/projects/{pid}/corpus/materialize")
+            assert ok.status_code == 200, ok.text
+            old_corpus_id = ok.json()["corpusId"]
+
+            async with session_factory() as s:
+                paper = await add_paper(
+                    s,
+                    {
+                        "title": "New Failed Build Paper",
+                        "doi": "10.1/new-failed-build",
+                        "csl_json": {"title": "New Failed Build Paper"},
+                    },
+                )
+                pp = await add_paper_to_project(s, pid, paper.id)
+                await set_inclusion(s, pp.id, "included")
+
+            failed = await c.post(f"/projects/{pid}/corpus/materialize")
+            assert failed.status_code == 502
+            assert failed.json()["code"] == "PARSE_FAILED"
+
+            detail = await c.get(f"/projects/{pid}")
+            assert detail.status_code == 200
+            body = detail.json()
+
+            active = body["activeCorpus"]
+            assert active is not None
+            assert active["status"] == "ready"
+            assert active["corpusId"] == old_corpus_id
+
+            latest = body["latestCorpus"]
+            assert latest is not None
+            assert latest["status"] == "failed"
+            assert latest["corpusId"] != old_corpus_id
+            assert latest["errorReason"]
+            assert "mock R parse failure" in latest["errorReason"]
     finally:
         app.dependency_overrides.clear()

@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AgentEvent, AgentRun
+from ..run_status import normalize_run_status
 
 if TYPE_CHECKING:  # 避免运行期循环依赖；仅类型标注用
     from ..harness.engine import LoopState
@@ -74,7 +75,7 @@ async def save_state(s: AsyncSession, run_id: int, state: "LoopState") -> AgentR
     if run is None:
         raise ValueError(f"AgentRun {run_id} not found")
     run.messages_snapshot = state.to_json()
-    run.status = state.status
+    run.status = normalize_run_status(state.status)
     run.cursor = state.round_idx
     run.rounds_log = state.rounds_log
     run.final_output = state.final_output
@@ -109,7 +110,7 @@ async def get_state(s: AsyncSession, run_id: int) -> "LoopState | None":
         messages=messages,
         round_idx=run.cursor or 0,
         rounds_log=run.rounds_log or [],
-        status=run.status or "running",
+        status=normalize_run_status(run.status),
         pending_round=run.pending_round,
         final_output=run.final_output,
         all_tool_results=run.evidence_refs or [],

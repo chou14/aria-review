@@ -114,6 +114,7 @@ describe("useLlmSettings", () => {
 
 describe("SettingsPage", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     localStorageMock.clear();
   });
 
@@ -167,7 +168,69 @@ describe("SettingsPage", () => {
     await renderSettings();
     expect(screen.getByText(/不上传服务端数据库/)).toBeInTheDocument();
   });
+
+  it.each([
+    [Object.assign(new Error("Unauthorized"), { status: 401, code: "UNAUTHORIZED" }), /API Key 无效/],
+    [Object.assign(new Error("Not Found"), { status: 404, code: "NOT_FOUND" }), /Base URL 或模型名称错误/],
+    [Object.assign(new Error("Failed to fetch"), { status: 0, code: "NETWORK_ERROR" }), /服务不可达/],
+  ])("测试连接失败时映射为可读文案", async (error, expected) => {
+    const { pingLlm } = await import("../api/client");
+    vi.mocked(pingLlm).mockRejectedValueOnce(error);
+
+    await renderSettings();
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "bad-key" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "测试连接" })[0]);
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
+  it("快速连续测试连接时，旧响应不会覆盖最后一次结果", async () => {
+    const { pingLlm } = await import("../api/client");
+    type PingResult = Awaited<ReturnType<typeof pingLlm>>;
+    const first = deferred<PingResult>();
+    const second = deferred<PingResult>();
+    vi.mocked(pingLlm)
+      .mockReset()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    await renderSettings();
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "race-key" } });
+    const testBtn = screen.getAllByRole("button", { name: "测试连接" })[0];
+
+    fireEvent.click(testBtn);
+    fireEvent.click(testBtn);
+
+    await waitFor(() => expect(pingLlm).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      second.resolve({
+        ok: true,
+        model: "fast-model",
+        baseUrl: "https://api.example.test/v1",
+        content: "fast-ok",
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/fast-model/)).toBeInTheDocument();
+
+    await act(async () => {
+      first.reject(Object.assign(new Error("Unauthorized"), { status: 401, code: "UNAUTHORIZED" }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/fast-model/)).toBeInTheDocument();
+    expect(screen.queryByText(/API Key 无效/)).not.toBeInTheDocument();
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 // ========================================================================
 // 3. OutputView 闸门测试
@@ -180,6 +243,8 @@ const mockUsePatchArtifact = vi.fn();
 const mockUseMaterializeCorpus = vi.fn();
 
 vi.mock("../api/agentHooks", () => ({
+  getPanelRCorpusId: (activeCorpus: { rCorpusId?: string | null } | null | undefined) =>
+    activeCorpus?.rCorpusId ?? "",
   useProject: (...args: unknown[]) => mockUseProject(...args),
   useArtifacts: (...args: unknown[]) => mockUseArtifacts(...args),
   usePatchArtifact: (...args: unknown[]) => mockUsePatchArtifact(...args),

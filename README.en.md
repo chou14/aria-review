@@ -7,7 +7,7 @@
 **Every sentence the AI writes can be traced back to real source evidence.**
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
 ![R](https://img.shields.io/badge/R-4.3+-276DC3?logo=r&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
@@ -219,8 +219,8 @@ docker compose --profile analysis up -d --build
 | Tool | Suggested version |
 |---|---|
 | Docker Compose | v2+ |
-| Node.js / pnpm | Node 20+ / pnpm 9+ |
-| Python | 3.11+ |
+| Node.js / pnpm | Node 20+ / pnpm 9.15.9 |
+| Python | 3.12 |
 | R | 4.3+ (only for the R analysis service tests) |
 
 **Frontend:**
@@ -243,28 +243,56 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
+`services/agent/requirements.txt` is the human-maintained top-level dependency declaration; `services/agent/requirements.lock` is the reproducible baseline generated from the current Python 3.12 virtualenv with `pip freeze`.
+
 **R analysis service:**
 
 ```bash
 PORT=8001 Rscript -e 'setwd("services/r-analysis"); library(plumber); plumb("plumber.R")$run(host="0.0.0.0", port=8001)'
 ```
 
-### Optional Environment Variables
+### Environment Variables
 
 ```bash
 cp .env.example .env
 ```
 
-**Every key is optional.** When unset, the system takes an offline or deterministic fallback path and still runs the demo. A user's LLM / Sciverse / Image keys are passed through request headers — **never written to the database, never echoed back.**
+Required user configuration: none. The root `.env` is used by Docker Compose; for local Agent runs, copy `services/agent/.env.example` to `services/agent/.env`. When keys are unset, the system takes an offline or deterministic fallback path and still runs the demo. A user's LLM / Sciverse / Image keys can be supplied through request headers or environment variables; they are **never written to the database, never echoed back.**
 
-| Variable | Purpose | When unset |
+Variables read by `services/agent/app/config.py`:
+
+| Variable | Default | Purpose |
 |---|---|---|
-| `OCR_AUTHORIZATION_TOKEN` | MinerU real full-text parsing | demo uses built-in Markdown; real upload parsing degrades |
-| `DEEPSEEK_API_KEY` | Real LLM review & AI tools | FakeLLM / deterministic fallback |
-| `SCIVERSE_API_TOKEN` | Sciverse metadata & full-text search | Sciverse path unavailable; OpenAlex still works |
-| `IMAGE_API_KEY` | Infographic generation | SVG fallback or prompt-only |
-| `CORS_ORIGINS` | Allowed frontend origins for the agent | Docker default restricts to `http://localhost:8080` |
-| `POSTGRES_PORT` | Host port for Compose Postgres | `55432` |
+| `R_ANALYSIS_URL` | `http://localhost:8001` | R analysis service URL used by the Agent; Compose defaults to `http://r-analysis:8001` |
+| `R_REQUEST_TIMEOUT` | `120` | Timeout in seconds for regular R analysis requests |
+| `R_INGEST_TIMEOUT` | `300` | Longer timeout in seconds for OpenAlex / reference-ingestion requests |
+| `R_HEALTH_TIMEOUT` | `5` | Timeout in seconds for R analysis health checks |
+| `MAX_UPLOAD_BYTES` | `52428800` | Upload size limit, 50 MiB by default |
+| `CORS_ORIGINS` | `http://localhost:8080,http://localhost:5173` | Comma-separated allowed Agent CORS origins; Compose defaults to `http://localhost:8080` |
+| `DEEPSEEK_API_KEY` | empty | DeepSeek-compatible LLM key; empty uses FakeLLM / deterministic fallback |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DeepSeek-compatible LLM API base URL |
+| `BIBLIOCN_ALLOW_PRIVATE_API_BASE_URLS` | empty | User-configurable Base URLs for LLM / Sciverse / Image are rejected when they point to localhost, private IPs, or `.local` hosts by default; set to `1` / `true` / `yes` / `on` only when you intentionally connect to an internal compatible LLM |
+| `REVIEW_RECORDS_LIMIT` | `40` | Record limit used when generating reviews |
+| `DATABASE_URL` | `postgresql+asyncpg://bibliocn@localhost/bibliocn` | Agent primary database URL; Compose defaults to the in-container Postgres |
+| `TEST_DATABASE_URL` | `postgresql+asyncpg://bibliocn@localhost/bibliocn_test` | Agent test database URL |
+| `OCR_AUTHORIZATION_TOKEN` | empty | MinerU OCR authorization token; empty disables real full-text parsing |
+| `MINERU_BASE_URL` | `https://mineru.net/api/v4` | MinerU OCR API base URL |
+| `SCIVERSE_BASE_URL` | `https://api.sciverse.space` | Sciverse search / full-text API base URL |
+| `SCIVERSE_API_TOKEN` | empty | Sciverse API token; empty disables the Sciverse path while OpenAlex remains available |
+| `SCIVERSE_TIMEOUT` | `60` | Timeout in seconds for Sciverse requests |
+| `SCIVERSE_CONTENT_CHUNK_CHARS` | `7000` | Character count for Sciverse full-text chunks |
+| `SCIVERSE_CONTENT_MAX_CHARS` | `500000` | Maximum retained characters per Sciverse full-text document |
+| `IMAGE_API_KEY` | empty | OpenAI-compatible image-generation key; empty uses SVG fallback or prompt-only output |
+| `IMAGE_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible image-generation API base URL |
+| `IMAGE_MODEL` | `gpt-image-1` | Image-generation model name |
+| `IMAGE_SIZE` | `1024x1024` | Image-generation size |
+| `BIBLIOCN_CORPORA_DIR` | `/tmp/bibliocn_corpora` | Corpus cache directory for Markdown, RunLogs, and metrics; Compose defaults to `/data/corpora` |
+
+The R analysis service also reads one OpenAlex polite-pool variable:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OPENALEX_EMAIL` | `aria-review@users.noreply.github.com` | `mailto` contact email used by the R analysis service when calling OpenAlex; the root `.env` is passed through to `r-analysis` |
 
 ---
 

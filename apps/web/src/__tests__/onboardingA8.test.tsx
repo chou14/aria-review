@@ -14,6 +14,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import type { ActiveCorpus } from "../api/agentHooks";
+import { API_BASE } from "../api/client";
+import { asDbCorpusId, asRCorpusId } from "../api/corpusIds";
 
 import { StageBar } from "../components/shell/StageBar";
 import { NextStepGuide } from "../components/onboarding/NextStepGuide";
@@ -39,7 +41,7 @@ vi.mock("../api/agentHooks", async (importOriginal) => {
 });
 
 // 导入需放在 mock 之后
-import { ProjectsPage } from "../pages/ProjectsPage";
+import { ProjectsPage, formatDate } from "../pages/ProjectsPage";
 
 // ---------------------------------------------------------------------------
 // localStorage / sessionStorage mock（jsdom opaque origin 无可用 Storage）
@@ -67,7 +69,7 @@ function LocationProbe() {
 }
 
 const READY_CORPUS: ActiveCorpus = {
-  corpusId: 1, rCorpusId: "r-1", status: "ready",
+  corpusId: asDbCorpusId(1), rCorpusId: asRCorpusId("r-1"), status: "ready",
   documentCount: 5, contentHash: "h", stale: false,
 };
 
@@ -277,6 +279,12 @@ describe("ProjectsPage 欢迎 hero", () => {
     );
   }
 
+  it("formatDate 对缺失/非法输入返回占位符", () => {
+    expect(formatDate(undefined)).toBe("—");
+    expect(formatDate(null)).toBe("—");
+    expect(formatDate("not-a-date")).toBe("—");
+  });
+
   it("首次（无项目）显示欢迎 hero + 五步工作流", () => {
     mockUseProjects.mockReturnValue({ data: { projects: [] }, isLoading: false, error: null });
     renderPage();
@@ -296,5 +304,34 @@ describe("ProjectsPage 欢迎 hero", () => {
     expect(screen.queryByLabelText("平台介绍")).toBeNull();
     expect(screen.getByLabelText("工作流提示")).toBeInTheDocument();
     expect(screen.getByText("项目甲")).toBeInTheDocument();
+  });
+
+  it("首屏项目加载失败时显示排查提示、原始错误和重试按钮", () => {
+    const refetch = vi.fn();
+    const friendlyMessage = `无法连接后端服务（${API_BASE}）。请确认后端服务已启动，或在项目根目录运行 docker compose up -d 后重试。`;
+    const error = Object.assign(
+      new Error(friendlyMessage),
+      {
+        friendlyMessage,
+        originalMessage: "Failed to fetch",
+        isFriendly: true,
+      },
+    );
+    mockUseProjects.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      error,
+      refetch,
+    });
+    renderPage();
+
+    expect(screen.getByText(/无法连接后端服务/)).toBeInTheDocument();
+    expect(screen.getByText(/docker compose up -d/)).toBeInTheDocument();
+    expect(screen.getByText("查看原始错误")).toBeInTheDocument();
+    expect(screen.getByText("Failed to fetch")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("新建 SLR 项目")).toBeNull();
   });
 });

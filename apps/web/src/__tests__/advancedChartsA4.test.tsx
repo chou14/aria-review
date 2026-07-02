@@ -13,6 +13,9 @@
  */
 import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("c1");
 
 // ---- mock echarts 实例 ----
 const { setOptionSpy, initSpy } = vi.hoisted(() => {
@@ -93,6 +96,7 @@ import {
 import {
   buildAuthorHeatmapOption,
   buildKeywordRiverOption,
+  getKeywordTrendInsufficientData,
 } from "../components/viz/advancedCharts";
 import { AuthorsPanel } from "../components/AuthorsPanel";
 import { DocumentsPanel } from "../components/DocumentsPanel";
@@ -206,6 +210,17 @@ describe("buildKeywordRiverOption", () => {
     const legend = opt.legend as { data: string[] };
     expect(legend.data).toEqual(["AI", "NLP"]);
   });
+
+  it("years 为空 → 返回 InsufficientData 元信息且 option 不产生 NaN 轴", () => {
+    const data = { years: [], terms: ["AI"], cells: [] };
+    expect(getKeywordTrendInsufficientData(data)).toMatchObject({
+      reason: "computed_empty",
+      message: expect.stringContaining("缺少年份数据"),
+    });
+    const opt = buildKeywordRiverOption(data);
+    expect(opt.singleAxis).toBeUndefined();
+    expect(opt.series).toEqual([]);
+  });
 });
 
 // ============================================================
@@ -226,7 +241,7 @@ describe("AuthorsPanel 作者年度产出热力图", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("作者年度产出时间线")).toBeInTheDocument();
     const heat = optionsWith((o) => {
       const s = o.series as Array<{ type?: string }> | undefined;
@@ -241,7 +256,7 @@ describe("AuthorsPanel 作者年度产出热力图", () => {
       data: { available: false, reason: "missing_field", missingField: "PY", message: "缺 PY 字段", howto: "导入含年份的题录" },
       isLoading: false, isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("缺少字段「PY」")).toBeInTheDocument();
     expect(screen.getByText("缺 PY 字段")).toBeInTheDocument();
   });
@@ -251,7 +266,7 @@ describe("AuthorsPanel 作者年度产出热力图", () => {
     authorProductionSpy.mockReturnValue({
       data: undefined, isLoading: false, isError: true, error: new Error("网络错误"),
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert").some((e) => e.textContent?.includes("网络错误"))).toBe(true);
     expect(screen.queryByText(/缺少字段/)).not.toBeInTheDocument();
   });
@@ -259,7 +274,7 @@ describe("AuthorsPanel 作者年度产出热力图", () => {
   it("loading 态 → ChartCard 加载中", () => {
     authorsSpy.mockReturnValue(authorsData);
     authorProductionSpy.mockReturnValue({ data: undefined, isLoading: true, isError: false });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByText("加载中…").length).toBeGreaterThan(0);
   });
 
@@ -272,7 +287,7 @@ describe("AuthorsPanel 作者年度产出热力图", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("g 指数")).toBeInTheDocument();
     expect(screen.getByText("m 指数")).toBeInTheDocument();
     expect(screen.getByText("被引总数")).toBeInTheDocument();
@@ -304,7 +319,7 @@ describe("DocumentsPanel 关键词历时演变 + 高被引参考文献", () => {
       data: { available: true, data: [{ ref: "Loughran 2011", count: 34 }] },
       isLoading: false, isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("关键词历时演变")).toBeInTheDocument();
     const river = optionsWith((o) => {
       const s = o.series as Array<{ type?: string }> | undefined;
@@ -326,16 +341,41 @@ describe("DocumentsPanel 关键词历时演变 + 高被引参考文献", () => {
       data: { available: false, reason: "missing_field", missingField: "CR", message: "缺参考文献字段" },
       isLoading: false, isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("缺少字段「DE」")).toBeInTheDocument();
     expect(screen.getByText("缺少字段「CR」")).toBeInTheDocument();
+  });
+
+  it("keyword-trend available:true 但 years 为空 → InsufficientData 降级，不渲染空图", () => {
+    documentsSpy.mockReturnValue(docData);
+    keywordTrendSpy.mockReturnValue({
+      data: {
+        available: true,
+        data: { years: [], terms: ["AI"], cells: [] },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    citedRefsSpy.mockReturnValue({
+      data: { available: true, data: [] },
+      isLoading: false,
+      isError: false,
+    });
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
+    expect(screen.getByText("计算结果为空")).toBeInTheDocument();
+    expect(screen.getByText("关键词历时演变缺少年份数据，无法计算时间轴。")).toBeInTheDocument();
+    const river = optionsWith((o) => {
+      const s = o.series as Array<{ type?: string }> | undefined;
+      return Array.isArray(s) && s[0]?.type === "themeRiver";
+    });
+    expect(river).toHaveLength(0);
   });
 
   it("cited-refs error 态 → 错误，不显示 InsufficientData", () => {
     documentsSpy.mockReturnValue(docData);
     keywordTrendSpy.mockReturnValue({ data: undefined, isLoading: true, isError: false });
     citedRefsSpy.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("HTTP 502") });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert").some((e) => e.textContent?.includes("HTTP 502"))).toBe(true);
   });
 });
@@ -356,7 +396,7 @@ describe("SourcesPanel A4 增量列", () => {
       },
       isLoading: false, isError: false,
     });
-    const { container } = render(<SourcesPanel projectId="1" corpusId="c1" />);
+    const { container } = render(<SourcesPanel projectId="1" corpusId={CID} />);
     // g/m/tc 列
     expect(screen.getByText("g 指数")).toBeInTheDocument();
     expect(screen.getByText("被引总数")).toBeInTheDocument();
@@ -378,7 +418,7 @@ describe("SourcesPanel A4 增量列", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<SourcesPanel projectId="1" corpusId="c1" />);
+    render(<SourcesPanel projectId="1" corpusId={CID} />);
     // 三处 g/m/tc 单元格均显示 —
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
   });
@@ -397,7 +437,7 @@ describe("OverviewPanel A4 KPI 卡", () => {
       data: { stats: { ...baseStats, hIndex: 21, annualGrowthRate: 12.9 }, annualProduction: [] },
       isLoading: false, isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("H 指数")).toBeInTheDocument();
     expect(screen.getByText("21")).toBeInTheDocument();
     expect(screen.getByText("年均增长率")).toBeInTheDocument();
@@ -408,7 +448,7 @@ describe("OverviewPanel A4 KPI 卡", () => {
       data: { stats: baseStats, annualProduction: [] },
       isLoading: false, isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.queryByText("H 指数")).not.toBeInTheDocument();
     expect(screen.queryByText("年均增长率")).not.toBeInTheDocument();
   });

@@ -7,6 +7,7 @@ import {
   type AiJob,
   type LlmRequestOptions,
 } from "../api/client";
+import type { RCorpusId } from "../api/corpusIds";
 import { useImageSettings } from "../api/useImageSettings";
 import { downloadMarkdown } from "../lib/download";
 import {
@@ -37,7 +38,7 @@ export function AiToolsPanel({
   apiKey,
 }: {
   projectId: string;
-  corpusId?: string;
+  corpusId?: RCorpusId;
   llm?: LlmRequestOptions;
   apiKey?: string;
 }) {

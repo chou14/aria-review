@@ -14,9 +14,13 @@ services:
   r-analysis:
     build: ./services/r-analysis
     profiles: ["analysis"]
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: "8001"
       BIBLIOCN_CORPORA_DIR: /data/corpora
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-}
     volumes:
       - corpora:/data/corpora
     expose:
@@ -24,21 +28,27 @@ services:
 
   agent:
     build: ./services/agent
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: "8000"
-      R_ANALYSIS_URL: http://r-analysis:8001
-      CORS_ORIGINS: http://localhost:8080
+      R_ANALYSIS_URL: ${R_ANALYSIS_URL:-http://r-analysis:8001}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
       # Phase 1 持久化: 连容器内 postgres (asyncpg 驱动)
-      DATABASE_URL: postgresql+asyncpg://bibliocn:bibliocn@postgres:5432/bibliocn
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://bibliocn:bibliocn@postgres:5432/bibliocn}
       # 与 demo 共享同一 corpora 卷 (缓存 markdown、demo RunLog/指标落点)
-      BIBLIOCN_CORPORA_DIR: /data/corpora
+      BIBLIOCN_CORPORA_DIR: ${BIBLIOCN_CORPORA_DIR:-/data/corpora}
       # 可选外部 key: 不设则为空, 离线友好 (无 MinerU/LLM 也能跑 demo)
       OCR_AUTHORIZATION_TOKEN: ${OCR_AUTHORIZATION_TOKEN:-}
+      MINERU_BASE_URL: ${MINERU_BASE_URL:-https://mineru.net/api/v4}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       IMAGE_API_KEY: ${IMAGE_API_KEY:-}
       IMAGE_BASE_URL: ${IMAGE_BASE_URL:-https://api.openai.com/v1}
       IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-1}
       IMAGE_SIZE: ${IMAGE_SIZE:-1024x1024}
+      # 显式保留 shell 环境注入路径 (SCIVERSE_API_TOKEN=... docker compose up)
       SCIVERSE_BASE_URL: ${SCIVERSE_BASE_URL:-https://api.sciverse.space}
       SCIVERSE_API_TOKEN: ${SCIVERSE_API_TOKEN:-}
     depends_on:
@@ -92,16 +102,22 @@ services:
   demo:
     build: ./services/agent
     profiles: ["demo"]
+    env_file:
+      - path: .env
+        required: false
     environment:
-      R_ANALYSIS_URL: http://r-analysis:8001
-      DATABASE_URL: postgresql+asyncpg://bibliocn:bibliocn@postgres:5432/bibliocn
-      BIBLIOCN_CORPORA_DIR: /data/corpora
+      R_ANALYSIS_URL: ${R_ANALYSIS_URL:-http://r-analysis:8001}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://bibliocn:bibliocn@postgres:5432/bibliocn}
+      BIBLIOCN_CORPORA_DIR: ${BIBLIOCN_CORPORA_DIR:-/data/corpora}
       OCR_AUTHORIZATION_TOKEN: ${OCR_AUTHORIZATION_TOKEN:-}
+      MINERU_BASE_URL: ${MINERU_BASE_URL:-https://mineru.net/api/v4}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
       IMAGE_API_KEY: ${IMAGE_API_KEY:-}
       IMAGE_BASE_URL: ${IMAGE_BASE_URL:-https://api.openai.com/v1}
       IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-1}
       IMAGE_SIZE: ${IMAGE_SIZE:-1024x1024}
+      # 显式保留 shell 环境注入路径 (与 agent 服务一致)
       SCIVERSE_BASE_URL: ${SCIVERSE_BASE_URL:-https://api.sciverse.space}
       SCIVERSE_API_TOKEN: ${SCIVERSE_API_TOKEN:-}
     depends_on:

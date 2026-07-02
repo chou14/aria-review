@@ -25,6 +25,7 @@ import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 
 from .config import settings
 from .errors import ApiError
@@ -53,6 +54,7 @@ from .repositories import project as project_repo
 from .review.load import load_project_corpus
 from .review.orchestrate import run_review
 from .review.templates import get_template
+from .run_status import normalize_run_status
 from .prompts import (
     REVIEW_TYPES,
     REWRITE_ACTIONS,
@@ -132,6 +134,7 @@ from .schemas import (
     TopicRequest,
     TranslateRequest,
     FromSearchCandidate,
+    FromSearchFailedItem,
     FromSearchRequest,
     FromSearchResult,
     SciverseAgenticSearchRequest,
@@ -176,6 +179,13 @@ _ERR_MAP = {
     502: ("ANALYSIS_FAILED", 502),
     503: ("R_SERVICE_UNAVAILABLE", 503),
 }
+
+
+def _short_error_message(value: object, max_length: int = 300) -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        text = type(value).__name__ if value is not None else "未知错误"
+    return text if len(text) <= max_length else text[:max_length - 1] + "…"
 
 
 def _raise_from_r(status: int, body: dict | None):
@@ -266,7 +276,7 @@ async def lifespan(app: FastAPI):
             await engine.dispose()
 
 
-app = FastAPI(title="BiblioCN agent", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="BiblioCN agent", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -886,7 +896,7 @@ def _ai_job_item(job) -> AiJobItem:
         projectId=job.project_id,
         corpusId=job.corpus_id,
         kind=job.kind,
-        status=job.status,
+        status=normalize_run_status(job.status),
         request=job.request_json,
         resultText=job.result_text or "",
         annotatedText=job.annotated_text,
@@ -1301,6 +1311,8 @@ async def sciverse_meta_search(body: SciverseMetaSearchRequest, request: Request
     ]
     return SciverseMetaSearchResult(
         candidates=candidates,
+        partial=bool(meta.get("partial")),
+        partialReason=meta.get("partialReason"),
         totalCount=meta.get("total_count"),
         page=meta.get("page"),
         pageSize=meta.get("page_size"),
@@ -1503,33 +1515,41 @@ async def materialize_corpus_endpoint(
 
     if not records:
         # 空 included 集合：标 failed 并告知调用方
-        await corpus_repo.mark_failed(s, corpus_id)
+        reason = f"项目 {pid} 没有 included 论文，无法构建语料"
+        await corpus_repo.mark_failed(s, corpus_id, reason)
         raise ApiError(
             422,
             "EMPTY_INCLUDED",
-            f"项目 {pid} 没有 included 论文，无法构建语料",
+            reason,
         )
 
     # 5. 调 R /parse-from-records
     try:
         status_code, body = await r.parse_from_records(records)
+    except ApiError as exc:
+        reason = f"R 服务不可达: {exc.message}"
+        await corpus_repo.mark_failed(s, corpus_id, reason)
+        raise ApiError(502, "R_SERVICE_UNAVAILABLE", reason) from exc
     except Exception as exc:
-        await corpus_repo.mark_failed(s, corpus_id)
-        raise ApiError(502, "R_SERVICE_UNAVAILABLE", f"R 服务不可达: {exc}") from exc
+        reason = f"R 服务不可达: {exc}"
+        await corpus_repo.mark_failed(s, corpus_id, reason)
+        raise ApiError(502, "R_SERVICE_UNAVAILABLE", reason) from exc
 
     if status_code >= 400 or (body or {}).get("status") == "failed":
-        await corpus_repo.mark_failed(s, corpus_id)
         code = (body or {}).get("code", "R_FAILED")
         msg = (body or {}).get("error") or (body or {}).get("message", f"R 返回 {status_code}")
-        raise ApiError(502, code, f"R 建库失败: {msg}")
+        reason = f"R 建库失败: {msg}"
+        await corpus_repo.mark_failed(s, corpus_id, reason)
+        raise ApiError(502, code, reason)
 
     # 6. 写回 r_corpus_id + status=ready
     # codex M2-P2#2: R 返回 200 但缺 corpusId 时, 不能标 ready(否则 activeCorpus
     # stale/StageBar 显示就绪, 但 M3 分析拿不到有效 rCorpusId)。校验非空, 否则 failed+502。
     r_corpus_id = (body or {}).get("corpusId", "")
     if not r_corpus_id:
-        await corpus_repo.mark_failed(s, corpus_id)
-        raise ApiError(502, "R_INVALID_RESPONSE", "R 建库成功但未返回 corpusId, 无法用于分析")
+        reason = "R 建库成功但未返回 corpusId, 无法用于分析"
+        await corpus_repo.mark_failed(s, corpus_id, reason)
+        raise ApiError(502, "R_INVALID_RESPONSE", reason)
     doc_count = int((body or {}).get("documentCount") or len(records))
     # codex M2-P2#1(已知限制): 单用户场景下并发 materialize 同一 content_hash 极少;
     # 真正互斥需对 (project_id, content_hash) 行锁/parsing 态 CAS。当前依赖 build_corpus_snapshot
@@ -2093,6 +2113,30 @@ async def import_papers_endpoint(
 
 # ---- P2-T3: from-search 入库端点 ----
 
+def _from_search_candidate_id(cand: FromSearchCandidate) -> str | None:
+    return (
+        cand.candidateId
+        or cand.openalexId
+        or cand.sciverseDocId
+        or cand.sciverseUniqueId
+        or cand.doi
+    )
+
+
+def _from_search_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, IntegrityError):
+        detail = _short_error_message(getattr(exc, "orig", None) or exc)
+        return f"数据库冲突：{detail}"
+    if isinstance(exc, DataError):
+        detail = _short_error_message(getattr(exc, "orig", None) or exc)
+        return f"字段异常：{detail}"
+    if isinstance(exc, SQLAlchemyError):
+        return f"数据库异常：{_short_error_message(exc)}"
+    if isinstance(exc, (TypeError, ValueError)):
+        return f"字段异常：{_short_error_message(exc)}"
+    return _short_error_message(exc)
+
+
 @app.post(
     "/projects/{pid:int}/papers/from-search",
     response_model=FromSearchResult,
@@ -2111,14 +2155,14 @@ async def from_search_endpoint(
     body: FromSearchRequest,
     s=Depends(get_session),
 ):
-    """把检索候选批量入库并关联到项目，返回 {imported, skipped, failed, paperIds}。"""
+    """把检索候选批量入库并关联到项目，返回入库统计和失败明细。"""
     # 1. 校验 project 存在
     if await project_repo.get_project(s, pid) is None:
         raise ApiError(404, "PROJECT_NOT_FOUND", f"项目 {pid} 不存在")
 
     imported_count = 0
     skipped_count = 0
-    failed_count = 0
+    failed: list[FromSearchFailedItem] = []
     paper_ids: list[int] = []
 
     from .repositories.project import find_project_paper
@@ -2222,8 +2266,12 @@ async def from_search_endpoint(
             imported_count += 1
             paper_ids.append(paper.id)
         except Exception as exc:
+            reason = _from_search_failure_reason(exc)
             log.exception(
-                "from_search: 候选处理失败 title=%r: %s", cand.title[:60], exc
+                "from_search: 候选处理失败 title=%r candidateId=%r: %s",
+                cand.title[:60],
+                _from_search_candidate_id(cand),
+                reason,
             )
             # 若异常为真实 DBAPI/IntegrityError，async session 会进入 failed-transaction
             # 状态；必须 rollback 清理脏状态，确保后续候选能在干净事务上继续处理。
@@ -2231,12 +2279,17 @@ async def from_search_endpoint(
                 await s.rollback()
             except Exception:
                 pass
-            failed_count += 1
+            failed.append(FromSearchFailedItem(
+                candidateId=_from_search_candidate_id(cand),
+                title=cand.title,
+                reason=reason,
+            ))
 
     return FromSearchResult(
         imported=imported_count,
         skipped=skipped_count,
-        failed=failed_count,
+        failed=failed,
+        failedCount=len(failed),
         paperIds=paper_ids,
     )
 
@@ -2535,7 +2588,7 @@ async def confirm_run(
         raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {rid} 不存在")
     ctrl: RunController = _get_run_controller(request)
     status = await ctrl.confirm(rid, body.toolCallId, body.decision)
-    return RunControlResponse(status=status)
+    return RunControlResponse(status=normalize_run_status(status))
 
 
 @app.post(
@@ -2553,7 +2606,7 @@ async def pause_run(pid: int, rid: int, request: Request, s=Depends(get_session)
         raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {rid} 不存在")
     ctrl: RunController = _get_run_controller(request)
     status = await ctrl.pause(rid)
-    return RunControlResponse(status=status)
+    return RunControlResponse(status=normalize_run_status(status))
 
 
 @app.post(
@@ -2571,7 +2624,7 @@ async def resume_run(pid: int, rid: int, request: Request, s=Depends(get_session
         raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {rid} 不存在")
     ctrl: RunController = _get_run_controller(request)
     status = await ctrl.resume(rid)
-    return RunControlResponse(status=status)
+    return RunControlResponse(status=normalize_run_status(status))
 
 
 @app.post(
@@ -2588,7 +2641,7 @@ async def cancel_run(pid: int, rid: int, request: Request, s=Depends(get_session
         raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {rid} 不存在")
     ctrl: RunController = _get_run_controller(request)
     status = await ctrl.cancel(rid)
-    return RunControlResponse(status=status)
+    return RunControlResponse(status=normalize_run_status(status))
 
 
 @app.get("/projects/{pid}/agent/runs/{rid}/events")
@@ -2630,6 +2683,15 @@ async def agent_run_events(
     # paused/resumed 是非终态信息事件（流保持打开，等 resume），不入此集合。
     terminal_types = {EventType.RUN_COMPLETE, EventType.ERROR, EventType.CANCELLED}
 
+    def _run_event_payload(ev_type: str, payload: dict) -> dict:
+        """历史事件读路径归一：deprecated completed 只在入口兼容，不再对外输出。"""
+        data = dict(payload or {})
+        if "status" in data and ev_type in {
+            EventType.RUN_COMPLETE, EventType.PAUSED, EventType.RESUMED, EventType.CANCELLED,
+        }:
+            data["status"] = normalize_run_status(data.get("status"))
+        return data
+
     # 修复1: 先订阅，再查历史。subscribe 后队列即开始缓冲，覆盖「查历史—进实时」
     # 中间窗口产生的事件，再用 seq 去重避免与历史重复。
     q = publisher.subscribe(channel)
@@ -2643,7 +2705,7 @@ async def agent_run_events(
             max_seq_sent = last_id
             history_terminal = False
             for ev in history:
-                yield _sse(ev.type, {**(ev.payload or {}), "seq": ev.seq}, seq=ev.seq)
+                yield _sse(ev.type, {**_run_event_payload(ev.type, ev.payload or {}), "seq": ev.seq}, seq=ev.seq)
                 if ev.seq > max_seq_sent:
                     max_seq_sent = ev.seq
                 if ev.type in terminal_types:
@@ -2665,7 +2727,7 @@ async def agent_run_events(
                 if ev_seq is not None and ev_seq <= max_seq_sent:
                     continue
                 ev_type = ev.get("type", "")
-                yield _sse(ev_type, ev, seq=ev_seq)
+                yield _sse(ev_type, _run_event_payload(ev_type, ev), seq=ev_seq)
                 if ev_seq is not None and ev_seq > max_seq_sent:
                     max_seq_sent = ev_seq
                 if ev_type in terminal_types:
@@ -2686,7 +2748,7 @@ async def list_agent_runs(pid: int, s=Depends(get_session)):
     runs = await agent_run_repo.list_runs(s, project_id=pid)
     return {
         "runs": [
-            AgentRunRef(runId=r.id, projectId=r.project_id, status=r.status)
+            AgentRunRef(runId=r.id, projectId=r.project_id, status=normalize_run_status(r.status))
             for r in runs
         ]
     }
@@ -2700,7 +2762,7 @@ async def get_agent_run(pid: int, rid: int, s=Depends(get_session)):
         raise ApiError(404, "RUN_NOT_FOUND", f"AgentRun {rid} 不存在")
     return RunDetail(
         runId=run.id,
-        status=run.status,
+        status=normalize_run_status(run.status),
         roundsLog=run.rounds_log or [],
         finalOutput=run.final_output,
         evidenceRefs=run.evidence_refs,

@@ -7,6 +7,37 @@ from __future__ import annotations
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
+from .run_status import RunStatus
+from .search_limits import SEARCH_LIMIT_MAX
+
+# 通用 POST /ai/jobs 可创建的 kind（_run_ai_job 有执行分支的集合）
+AiJobCreatableKind = Literal[
+    "review",
+    "chat",
+    "summary",
+    "translate",
+    "rewrite",
+    "infographic_prompt",
+    "infographic_image",
+]
+# 已持久化/可列出的 kind 全集：research 路由（gaps:discover / gaps:verify）
+# 走专用端点创建 gap_discover / gap_verify，不经通用创建入口
+AiJobKind = Literal[
+    "review",
+    "chat",
+    "summary",
+    "translate",
+    "rewrite",
+    "infographic_prompt",
+    "infographic_image",
+    "gap_discover",
+    "gap_verify",
+]
+AiJobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
+CorpusStatus = Literal["parsing", "ready", "failed"]
+InclusionStatus = Literal["candidate", "included", "excluded", "maybe"]
+OcrStatus = Literal["none", "pending", "processing", "done", "failed"]
+
 
 class Health(BaseModel):
     status: str
@@ -47,15 +78,7 @@ class ReviewRequest(BaseModel):
 
 
 class AiJobCreateRequest(BaseModel):
-    kind: Literal[
-        "review",
-        "chat",
-        "summary",
-        "translate",
-        "rewrite",
-        "infographic_prompt",
-        "infographic_image",
-    ]
+    kind: AiJobCreatableKind
     corpusId: str | None = None
     type: str | None = None
     topic: str | None = None
@@ -88,8 +111,8 @@ class AiJobItem(BaseModel):
     id: int
     projectId: int
     corpusId: str | None = None
-    kind: str
-    status: str
+    kind: AiJobKind
+    status: AiJobStatus
     request: dict | None = None
     resultText: str = ""
     annotatedText: str | None = None
@@ -568,7 +591,7 @@ class RefsRequest(BaseModel):
 class CorpusRef(BaseModel):
     corpusId: str
     projectId: str
-    status: str  # parsing | ready | failed
+    status: CorpusStatus
     schemaVersion: int
     dbsource: str | None = None
     documentCount: int | None = None
@@ -602,10 +625,22 @@ class ActiveCorpusDetail(BaseModel):
     """
     corpusId: int
     rCorpusId: str | None = None
-    status: str  # parsing | ready | failed
+    status: CorpusStatus
     documentCount: int
     contentHash: str
     stale: bool
+    errorReason: str | None = None
+
+
+class LatestCorpusDetail(BaseModel):
+    """项目最近一次 corpus 构建摘要，不按 status 过滤。"""
+    corpusId: int
+    rCorpusId: str | None = None
+    status: CorpusStatus
+    documentCount: int | None = None
+    contentHash: str
+    errorReason: str | None = None
+    createdAt: str | None = None
 
 
 class ProjectDetail(BaseModel):
@@ -615,19 +650,22 @@ class ProjectDetail(BaseModel):
     description: str | None = None
     paperCount: int
     includedCount: int
+    readableFulltextCount: int
     # M2: 项目当前 active corpus（最新 ready corpus；无则 null）
     activeCorpus: ActiveCorpusDetail | None = None
+    # P1-2: 项目最近一次构建（含 failed），用于前端展示失败原因
+    latestCorpus: LatestCorpusDetail | None = None
 
 
 class ProjectPaperItem(BaseModel):
     paperId: int
     title: str | None = None
     year: int | None = None
-    inclusionStatus: str
+    inclusionStatus: InclusionStatus
     screeningScore: int | None = None
     hasAbstract: bool = False
     hasPdf: bool = False
-    ocrStatus: Literal["none", "pending", "processing", "done", "failed"] = "none"
+    ocrStatus: OcrStatus = "none"
     hasExtraction: bool = False
 
 
@@ -648,12 +686,12 @@ class PaperDetail(BaseModel):
     abstract: str | None = None
     tags: list[str] = Field(default_factory=list)
     notes: list = Field(default_factory=list)
-    inclusionStatus: str
+    inclusionStatus: InclusionStatus
     extraction: PaperExtractionDto | None = None
 
 
 class InclusionPatchRequest(BaseModel):
-    inclusionStatus: str
+    inclusionStatus: InclusionStatus
     exclusionReason: str | None = None
     screeningScore: int | None = None
 
@@ -699,18 +737,18 @@ class ConfirmRequest(BaseModel):
 
 
 class RunControlResponse(BaseModel):
-    status: str
+    status: RunStatus
 
 
 class AgentRunRef(BaseModel):
     runId: int
     projectId: int
-    status: str
+    status: RunStatus
 
 
 class RunDetail(BaseModel):
     runId: int
-    status: str
+    status: RunStatus
     roundsLog: list = Field(default_factory=list)
     finalOutput: str | None = None
     evidenceRefs: list | None = None
@@ -729,7 +767,7 @@ class CorpusMaterializeResponse(BaseModel):
     """
     corpusId: int
     rCorpusId: str | None = None
-    status: str  # parsing | ready | failed
+    status: CorpusStatus
     documentCount: int
     contentHash: str
 
@@ -807,6 +845,7 @@ class ProjectLibraryStats(BaseModel):
 
 class FromSearchCandidate(BaseModel):
     """单条检索候选，title 必填，其余可选。"""
+    candidateId: str | None = Field(default=None, max_length=255)
     title: str = Field(min_length=1, max_length=1000)
     doi: str | None = Field(default=None, max_length=255)
     authors: list[str] = Field(default_factory=list, max_length=100)
@@ -827,15 +866,26 @@ class FromSearchCandidate(BaseModel):
 
 class FromSearchRequest(BaseModel):
     """POST /projects/{pid}/papers/from-search 请求体。"""
-    candidates: list[FromSearchCandidate] = Field(min_length=1, max_length=500)
+    candidates: list[FromSearchCandidate] = Field(min_length=1, max_length=SEARCH_LIMIT_MAX)
     defaultStatus: Literal["candidate", "included"] = "candidate"
+
+
+class FromSearchFailedItem(BaseModel):
+    """单条 from-search 入库失败明细。"""
+    candidateId: str | None = None
+    title: str
+    reason: str
 
 
 class FromSearchResult(BaseModel):
     """POST /projects/{pid}/papers/from-search 响应体。"""
     imported: int = Field(ge=0, description="本次新导入（首次关联到项目）的文献数")
     skipped: int = Field(ge=0, description="幂等跳过（paper 已存在于项目）的文献数")
-    failed: int = Field(default=0, ge=0, description="处理失败的候选数（单条异常，不影响其他候选）")
+    failed: list[FromSearchFailedItem] = Field(
+        default_factory=list,
+        description="处理失败的候选明细（单条异常，不影响其他候选）",
+    )
+    failedCount: int = Field(default=0, ge=0, description="处理失败的候选数，等于 failed.length")
     paperIds: list[int] = Field(
         default_factory=list,
         description="所有成功入库的 paper DB id（含 imported + skipped 两类）",
@@ -870,6 +920,8 @@ class SciverseMetaSearchRequest(BaseModel):
 
 class SciverseMetaSearchResult(BaseModel):
     candidates: list[dict]
+    partial: bool = False
+    partialReason: str | None = None
     totalCount: int | None = None
     page: int | None = None
     pageSize: int | None = None

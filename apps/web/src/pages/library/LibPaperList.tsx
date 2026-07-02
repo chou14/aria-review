@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { BackfillMetadataResult, ExtractStructuredResult, InclusionStatus, ProjectPaperItem } from "../../api/client";
 import type { ExtractionFilter, SortDir, SortField } from "../LibraryView";
 import { PaperStatusBadges } from "../../components/PaperStatusBadges";
+import { ErrMsg } from "../../lib/ui";
 
 /** 每行高度（固定） */
 const ROW_HEIGHT = 44;
@@ -29,6 +30,23 @@ function StatusBadge({ status }: { status: InclusionStatus }) {
       {INCLUSION_LABELS[status]}
     </span>
   );
+}
+
+type FriendlyError = Error & {
+  friendlyMessage?: string;
+  originalMessage?: string;
+};
+
+function withFriendlyError(error: unknown, friendlyMessage: string): FriendlyError | null {
+  if (!error) return null;
+  const source = error as FriendlyError;
+  const originalMessage = source.originalMessage ?? source.message ?? (typeof error === "string" ? error : undefined);
+  const wrapped = new Error(originalMessage ?? friendlyMessage) as FriendlyError;
+  wrapped.friendlyMessage = friendlyMessage;
+  if (originalMessage && originalMessage !== friendlyMessage) {
+    wrapped.originalMessage = originalMessage;
+  }
+  return wrapped;
 }
 
 interface Props {
@@ -53,6 +71,8 @@ interface Props {
   isExtracting: boolean;
   backfillResult: BackfillMetadataResult | null;
   extractResult: ExtractStructuredResult | null;
+  backfillError?: unknown;
+  extractError?: unknown;
   onBackfill: () => void;
   onExtract: () => void;
   onClearBackfillResult: () => void;
@@ -85,6 +105,8 @@ export function LibPaperList({
   isExtracting,
   backfillResult,
   extractResult,
+  backfillError,
+  extractError,
   onBackfill,
   onExtract,
   onClearBackfillResult,
@@ -102,6 +124,8 @@ export function LibPaperList({
   const isAllSelected = papers.length > 0 && selected.size === papers.length;
   const hasSomeSelected = selected.size > 0;
   const isFiltered = papers.length !== allPapers.length;
+  const backfillDisplayError = withFriendlyError(backfillError, "AI 补全元数据失败，请重试。");
+  const extractDisplayError = withFriendlyError(extractError, "AI 解析结构化字段失败，请重试。");
 
   return (
     <>
@@ -164,6 +188,16 @@ export function LibPaperList({
           </button>
         </div>
       )}
+      {backfillDisplayError && (
+        <ErrMsg
+          error={backfillDisplayError}
+          action={
+            <button className="btn" onClick={onBackfill} disabled={isBackfilling}>
+              重试补全
+            </button>
+          }
+        />
+      )}
       {extractResult && (
         <div className="lib-ai-feedback" role="status" aria-live="polite">
           <span>
@@ -182,6 +216,16 @@ export function LibPaperList({
             ×
           </button>
         </div>
+      )}
+      {extractDisplayError && (
+        <ErrMsg
+          error={extractDisplayError}
+          action={
+            <button className="btn" onClick={onExtract} disabled={isExtracting}>
+              重试解析
+            </button>
+          }
+        />
       )}
 
       {/* 已解析过滤 chip 组 */}

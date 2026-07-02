@@ -1,7 +1,7 @@
 /**
  * ProjectShell.tsx — 项目级别壳层
  * 加载项目 → 渲染 ProjectNav + StageBar + 区域 Outlet
- * 替代旧的 ProjectWorkbench（Outlet 结构不变，只升级壳层）
+ * 负责项目级 Outlet 壳层、阶段进度与区域导航。
  *
  * A8 新手指导接线：
  *   - 项目名行加常驻「? 新手指南」入口（GuideButton），点击重开 WelcomeTour。

@@ -1,0 +1,19 @@
+{
+  "id": 5,
+  "name": "契约样例项目",
+  "researchQuestion": "graph neural networks for bibliometric network analysis",
+  "description": "用于前后端契约联调的项目详情 fixture",
+  "paperCount": 12,
+  "includedCount": 3,
+  "readableFulltextCount": 2,
+  "activeCorpus": null,
+  "latestCorpus": {
+    "corpusId": 77,
+    "rCorpusId": null,
+    "status": "failed",
+    "documentCount": 3,
+    "contentHash": "sha256:contract-fixture",
+    "errorReason": "mock R parse failure",
+    "createdAt": "2026-06-16T03:15:00Z"
+  }
+}

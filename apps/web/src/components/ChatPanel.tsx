@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createAiJob, getAiJob, listAiJobs, type AiJob, type ChatMessage, type LlmRequestOptions } from "../api/client";
+import type { RCorpusId } from "../api/corpusIds";
 import { downloadMarkdown } from "../lib/download";
 import {
   AiPanel,
@@ -19,7 +20,7 @@ export function ChatPanel({
   apiKey,
 }: {
   projectId: string;
-  corpusId: string;
+  corpusId: RCorpusId;
   llm?: LlmRequestOptions;
   apiKey?: string;
 }) {

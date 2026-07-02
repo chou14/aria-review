@@ -119,6 +119,7 @@ async def test_get_project_detail_happy(aclient):
     assert body["name"] == "Detail Project"
     assert body["paperCount"] == 0
     assert body["includedCount"] == 0
+    assert body["readableFulltextCount"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +242,8 @@ async def test_patch_inclusion_excluded_with_reason(aclient):
 
 
 @pytest.mark.asyncio
-async def test_patch_inclusion_invalid_status_400(aclient):
-    """非法 inclusionStatus 返回 400。"""
+async def test_patch_inclusion_invalid_status_422(aclient):
+    """非法 inclusionStatus 由请求 schema 拦截，返回 422。"""
     c, factory = aclient
     async with factory() as s:
         proj = await create_project(s, {"name": "InvStatus"})
@@ -253,10 +254,9 @@ async def test_patch_inclusion_invalid_status_400(aclient):
 
     r = await c.patch(
         f"/projects/{pid}/papers/{paper_id}",
-        json={"inclusionStatus": "bad_status"},
+        json={"inclusionStatus": "banana"},
     )
-    assert r.status_code == 400
-    assert r.json()["code"] == "VALIDATION_ERROR"
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio

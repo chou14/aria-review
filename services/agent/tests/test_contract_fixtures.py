@@ -6,18 +6,22 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-from app.schemas import StructureResponse
+from app.schemas import FromSearchResult, ProjectDetail, StructureResponse
 
-from helpers_contract import (
-    contract_review_with_provenance,
-    contract_structure_payload,
-)
+CONTRACT_FIXTURES_DIR = Path(__file__).resolve().parents[3] / "packages" / "contracts" / "fixtures"
+
+
+def _fixture(name: str) -> dict:
+    import json
+
+    return json.loads((CONTRACT_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 def test_sample_structure_fixture_matches_contract():
     """synthetic structure payload 必须 schema 忠实地 round-trip 回 StructureResponse。"""
-    d = contract_structure_payload()
+    d = _fixture("sample_structure.json")
     resp = StructureResponse.model_validate(d)  # schema 忠实：失败即契约漂移
 
     assert resp.page_count >= 1
@@ -38,7 +42,7 @@ def test_sample_structure_fixture_matches_contract():
 
 def test_sample_review_fixture_has_provenance():
     """synthetic review payload 必须含真实 anchor + provenance 链路。"""
-    d = contract_review_with_provenance()
+    d = _fixture("sample_review_with_provenance.json")
     assert {"review_md", "provenance_map"} <= d.keys()
 
     review_md = d["review_md"]
@@ -68,3 +72,24 @@ def test_sample_review_fixture_has_provenance():
         e.get("page_no") is not None and e.get("block_idx") is not None
         for e in provenance_map.values()
     ), "至少一条 provenance entry 应有非空 page_no + block_idx"
+
+
+def test_project_detail_fixture_covers_latest_corpus_fields():
+    """ProjectDetail fixture 覆盖 readableFulltextCount/latestCorpus failed 明细。"""
+    d = _fixture("project_detail.json")
+    resp = ProjectDetail.model_validate(d)
+
+    assert resp.readableFulltextCount >= 1
+    assert resp.latestCorpus is not None
+    assert resp.latestCorpus.status == "failed"
+    assert resp.latestCorpus.errorReason
+
+
+def test_from_search_fixture_covers_failed_details():
+    """FromSearchResult fixture 覆盖 failed 明细，failedCount 与 failed.length 同步。"""
+    d = _fixture("from_search_result.json")
+    resp = FromSearchResult.model_validate(d)
+
+    assert resp.failedCount == len(resp.failed)
+    assert resp.failedCount >= 1
+    assert all(item.title and item.reason for item in resp.failed)

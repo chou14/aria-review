@@ -15,7 +15,10 @@ from __future__ import annotations
 import hashlib
 import pytest
 
+from app.tools import search as _search_mod
 from app.tools.search import SearchTool
+from app.config import settings
+from app.errors import ApiError
 from app.harness.tools import ToolRegistry
 
 
@@ -60,6 +63,15 @@ def _make_candidate(
 
 def _sha256_hex16(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+@pytest.fixture(autouse=True)
+def _default_sciverse_unconfigured(monkeypatch):
+    """本文件大多数用例测的是 openalex/R 分支：默认把 sciverse 视为未配置，
+    使省略 provider 的用例走 openalex(FakeR)，不因真实环境有 SCIVERSE_API_TOKEN
+    而意外打到真实 sciverse 网络。测 sciverse 默认路由的用例自行 monkeypatch 覆盖为 True。
+    """
+    monkeypatch.setattr(_search_mod, "_sciverse_configured", lambda: False)
 
 
 # ======================================================================
@@ -334,7 +346,62 @@ async def test_connection_error_returns_failure():
 
     assert not result.success, "连接异常应返回 success=False"
     assert result.error is not None
-    assert "不可达" in result.error or "Connection" in result.error
+    assert "R 分析服务不可达" in result.error
+    assert "docker compose --profile analysis up -d" in result.error
+    assert "Connection refused" in result.error
+
+
+@pytest.mark.asyncio
+async def test_sciverse_missing_token_message_guides_settings(monkeypatch):
+    """显式走 Sciverse 但未配置 token → 返回配置引导，不混同为服务不可达。"""
+    monkeypatch.setattr(settings, "sciverse_base_url", "https://api.sciverse.space")
+    monkeypatch.setattr(settings, "sciverse_api_token", "")
+
+    result = await SearchTool(FakeRSearch()).execute(
+        "topic",
+        {"query": "地下结构抗连续倒塌", "provider": "sciverse"},
+        {},
+    )
+
+    assert not result.success
+    assert result.error is not None
+    assert "Sciverse API Token 未配置" in result.error
+    assert "设置页配置 SCIVERSE_API_TOKEN" in result.error
+    assert "环境变量 SCIVERSE_API_TOKEN" in result.error
+    assert "不可达" not in result.error
+
+
+@pytest.mark.asyncio
+async def test_sciverse_connection_failure_message_includes_address_and_reason(monkeypatch):
+    """Sciverse 已配置 token 但连接失败 → 返回网络排查向文案。"""
+    message = (
+        "Sciverse 服务不可达（地址: https://api.sciverse.space；原因: "
+        "连接失败（ConnectError: Connection refused））。"
+        "请检查 Sciverse 服务地址、网络连通性、代理/防火墙和服务状态。"
+    )
+
+    class BrokenSciverseClient:
+        def __init__(self, cfg):
+            self.cfg = cfg
+
+        async def meta_search(self, **kwargs):
+            raise ApiError(503, "SCIVERSE_UNAVAILABLE", message)
+
+    monkeypatch.setattr(settings, "sciverse_base_url", "https://api.sciverse.space")
+    monkeypatch.setattr(settings, "sciverse_api_token", "token-123")
+    monkeypatch.setattr(_search_mod, "SciverseClient", BrokenSciverseClient)
+
+    result = await SearchTool(FakeRSearch()).execute(
+        "topic",
+        {"query": "地下结构抗连续倒塌", "provider": "sciverse"},
+        {},
+    )
+
+    assert not result.success
+    assert result.error == message
+    assert "地址: https://api.sciverse.space" in result.error
+    assert "连接失败" in result.error
+    assert "请检查 Sciverse 服务地址、网络连通性" in result.error
 
 
 # ======================================================================
@@ -377,7 +444,7 @@ async def test_r_error_detail_truncated_to_200_chars():
 
 
 # ======================================================================
-# Test 15 (P1-2): limit=200 → 实际透传给 R 的 n ≤ 100
+# Test 15 (P1-2): limit=200 → 实际透传给 R
 # ======================================================================
 
 @pytest.mark.asyncio
@@ -396,6 +463,50 @@ async def test_limit_200_is_preserved_for_large_candidate_recall():
     assert result.success, f"预期成功，实际: {result.error}"
     assert len(calls) == 1, "应调用一次 search_openalex"
     assert calls[0] == 200
+
+
+@pytest.mark.asyncio
+async def test_limit_600_is_rejected_without_silent_clamp():
+    """limit=600 超过检索上限 500 → 显式失败，且不调用 R。"""
+    calls = []
+
+    class RecordingR:
+        async def search_openalex(self, query: str, n: int, since: str):
+            calls.append(n)
+            return 200, {"results": []}
+
+    tool = SearchTool(RecordingR())
+    result = await tool.execute("topic", {"query": "test", "limit": 600}, {})
+
+    assert not result.success
+    assert result.error is not None
+    assert "检索上限 500" in result.error
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_r_partial_marker_is_forwarded_to_result_and_event():
+    """R 返回 partial=TRUE 时，SearchTool 透传部分结果与标注给前端事件和 data。"""
+    r = FakeRSearch(200, {
+        "results": [_make_candidate(openalex_id="W1", title="Partial Paper")],
+        "partial": True,
+        "partialReason": "OpenAlex 返回 429: rate limit",
+    })
+    tool = SearchTool(r)
+    emitted = []
+
+    async def emit(event):
+        emitted.append(event)
+
+    result = await tool.execute("topic", {"query": "test", "limit": 200}, {"emit": emit})
+
+    assert result.success
+    assert result.data[0]["partial"] is True
+    assert result.data[0]["partialReason"] == "OpenAlex 返回 429: rate limit"
+    assert emitted[0]["partial"] is True
+    assert emitted[0]["partialReason"] == "OpenAlex 返回 429: rate limit"
+    assert emitted[0]["candidates"][0]["candidate_id"] == "W1"
+    assert "部分结果" in result.summary
 
 
 # ======================================================================
@@ -433,39 +544,37 @@ async def test_r_502_openalex_unavailable_distinct_from_empty():
 
 
 # ======================================================================
-# Provider 路由测试（benchmark 优化：中文→sciverse / 纯英文→openalex / 配置感知 fallback）
+# Provider 路由测试（默认 sciverse，未配置时配置感知 fallback 到 openalex）
 # ======================================================================
-from app.tools import search as _search_mod
 
 
-def test_auto_provider_english_to_openalex():
-    assert _search_mod._auto_provider("machine learning bearing fault diagnosis") == "openalex"
-    assert _search_mod._auto_provider("GAN") == "openalex"
-
-
-def test_auto_provider_chinese_to_sciverse_when_configured(monkeypatch):
+def test_auto_provider_defaults_to_sciverse_when_configured(monkeypatch):
     monkeypatch.setattr(_search_mod, "_sciverse_configured", lambda: True)
+    assert _search_mod._auto_provider("machine learning bearing fault diagnosis") == "sciverse"
+    assert _search_mod._auto_provider("GAN") == "sciverse"
     assert _search_mod._auto_provider("地下结构抗连续倒塌") == "sciverse"
     assert _search_mod._auto_provider("transformer 模型 自然语言处理") == "sciverse"  # 混合含中文
 
 
-def test_auto_provider_chinese_falls_back_when_sciverse_unconfigured(monkeypatch):
-    # codex P1: Sciverse 未配置时, 中文也回退 openalex, 不因缺 token 直接失败
+def test_auto_provider_falls_back_to_openalex_when_sciverse_unconfigured(monkeypatch):
+    # codex P1: Sciverse 未配置时回退 openalex, 不因缺 token 直接失败（中英文均适用）
     monkeypatch.setattr(_search_mod, "_sciverse_configured", lambda: False)
+    assert _search_mod._auto_provider("machine learning bearing fault diagnosis") == "openalex"
     assert _search_mod._auto_provider("地下结构抗连续倒塌") == "openalex"
 
 
 @pytest.mark.asyncio
-async def test_omitted_provider_english_routes_to_openalex():
-    """省略 provider + 英文 query → 走 openalex(FakeR) 成功。"""
+async def test_omitted_provider_falls_back_to_openalex_when_sciverse_unconfigured(monkeypatch):
+    """省略 provider + sciverse 未配置 → 走 openalex(FakeR) 成功。"""
+    monkeypatch.setattr(_search_mod, "_sciverse_configured", lambda: False)
     r = FakeRSearch(200, {"results": [_make_candidate()]})
     result = await SearchTool(r).execute("topic", {"query": "supply chain finance"}, {})
     assert result.success
 
 
 @pytest.mark.asyncio
-async def test_omitted_provider_chinese_routes_to_sciverse(monkeypatch):
-    """省略 provider + 中文 query + sciverse 已配置 → 路由到 sciverse 分支, 不调用 openalex。"""
+async def test_omitted_provider_routes_to_sciverse_when_configured(monkeypatch):
+    """省略 provider + sciverse 已配置 → 默认路由到 sciverse 分支, 不调用 openalex（中英文均适用）。"""
     monkeypatch.setattr(_search_mod, "_sciverse_configured", lambda: True)
     called = {"oa": False}
 
@@ -481,6 +590,6 @@ async def test_omitted_provider_chinese_routes_to_sciverse(monkeypatch):
                         source="api", summary="sciverse ok")
 
     monkeypatch.setattr(SearchTool, "_execute_sciverse", fake_sv)
-    result = await tool.execute("topic", {"query": "盈余管理与公司治理"}, {})
+    result = await tool.execute("topic", {"query": "supply chain finance"}, {})
     assert result.success
-    assert called["oa"] is False, "中文 query 应路由到 sciverse, 不应调用 openalex"
+    assert called["oa"] is False, "默认应路由到 sciverse, 不应调用 openalex"

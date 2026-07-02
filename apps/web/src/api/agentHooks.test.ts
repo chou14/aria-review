@@ -2,15 +2,22 @@
  * agentHooks.test.ts — W1 审查：mutation 库统计失效测试
  *
  * 覆盖：
- *   1. useImportPapers onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats
- *   2. usePatchInclusion onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats
- *   3. useMaterializeCorpus onSuccess 失效 project / projectLibraryStats
+ *   1. useImportPapers onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats / project
+ *   2. usePatchInclusion onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats / project / paper
+ *   3. useMaterializeCorpus onSettled 失效 project / projectLibraryStats
+ *   4. useAddFromSearch onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats / project
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 import React from "react";
-import { useImportPapers, usePatchInclusion, useMaterializeCorpus } from "./agentHooks";
+import {
+  useImportPapers,
+  usePatchInclusion,
+  useMaterializeCorpus,
+  useAddFromSearch,
+} from "./agentHooks";
+import { materializeCorpus } from "./client";
 
 // ---- mock client ----
 vi.mock("./client", async (importOriginal) => {
@@ -19,7 +26,13 @@ vi.mock("./client", async (importOriginal) => {
     ...actual,
     importPapers: vi.fn().mockResolvedValue({ imported: 1, skipped: 0, failed: [], paperIds: [1] }),
     patchInclusion: vi.fn().mockResolvedValue({ paperId: 1, inclusionStatus: "included" }),
-    materializeCorpus: vi.fn().mockResolvedValue({ corpusId: 1, rCorpusId: "x", status: "ready", documentCount: 1 }),
+    materializeCorpus: vi.fn().mockResolvedValue({
+      corpusId: 1,
+      rCorpusId: "x",
+      status: "ready",
+      documentCount: 1,
+    }),
+    addPapersFromSearch: vi.fn().mockResolvedValue({ imported: 1, skipped: 0, failed: [], failedCount: 0, paperIds: [1] }),
   };
 });
 
@@ -38,7 +51,7 @@ function spiedKeys(calls: unknown[][]): unknown[][] {
   return calls.map((c) => (c[0] as { queryKey?: unknown[] }).queryKey ?? []);
 }
 
-describe("useImportPapers — onSuccess 库统计失效", () => {
+describe("useImportPapers — onSuccess 库统计与项目详情失效", () => {
   let qc: QueryClient;
   const calls: unknown[][] = [];
 
@@ -54,7 +67,7 @@ describe("useImportPapers — onSuccess 库统计失效", () => {
     };
   });
 
-  it("成功后失效 projectPapers / projectLibraryStats / globalLibraryStats", async () => {
+  it("成功后失效 projectPapers / projectLibraryStats / globalLibraryStats / project", async () => {
     const { result } = renderHook(() => useImportPapers(42), {
       wrapper: makeWrapper(qc),
     });
@@ -66,10 +79,11 @@ describe("useImportPapers — onSuccess 库统计失效", () => {
     expect(keys).toContainEqual(["projectPapers", 42]);
     expect(keys).toContainEqual(["projectLibraryStats", 42]);
     expect(keys).toContainEqual(["globalLibraryStats"]);
+    expect(keys).toContainEqual(["project", 42]);
   });
 });
 
-describe("usePatchInclusion — onSuccess 库统计失效", () => {
+describe("usePatchInclusion — onSuccess 库统计、项目详情与论文详情失效", () => {
   let qc: QueryClient;
   const calls: unknown[][] = [];
 
@@ -84,7 +98,7 @@ describe("usePatchInclusion — onSuccess 库统计失效", () => {
     };
   });
 
-  it("成功后失效 projectPapers / projectLibraryStats / globalLibraryStats", async () => {
+  it("成功后失效 projectPapers / projectLibraryStats / globalLibraryStats / project / paper", async () => {
     const { result } = renderHook(() => usePatchInclusion(7), {
       wrapper: makeWrapper(qc),
     });
@@ -96,10 +110,12 @@ describe("usePatchInclusion — onSuccess 库统计失效", () => {
     expect(keys).toContainEqual(["projectPapers", 7]);
     expect(keys).toContainEqual(["projectLibraryStats", 7]);
     expect(keys).toContainEqual(["globalLibraryStats"]);
+    expect(keys).toContainEqual(["project", 7]);
+    expect(keys).toContainEqual(["paper", 7, 1]);
   });
 });
 
-describe("useMaterializeCorpus — onSuccess 失效 project + projectLibraryStats", () => {
+describe("useMaterializeCorpus — onSettled 失效 project + projectLibraryStats", () => {
   let qc: QueryClient;
   const calls: unknown[][] = [];
 
@@ -125,5 +141,49 @@ describe("useMaterializeCorpus — onSuccess 失效 project + projectLibraryStat
     const keys = spiedKeys(calls);
     expect(keys).toContainEqual(["project", 3]);
     expect(keys).toContainEqual(["projectLibraryStats", 3]);
+  });
+
+  it("失败后也失效 project 以拉取 latestCorpus.errorReason", async () => {
+    vi.mocked(materializeCorpus).mockRejectedValueOnce(new Error("materialize failed"));
+    const { result } = renderHook(() => useMaterializeCorpus(3), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate();
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    const keys = spiedKeys(calls);
+    expect(keys).toContainEqual(["project", 3]);
+  });
+});
+
+describe("useAddFromSearch — onSuccess 库统计与项目详情失效", () => {
+  let qc: QueryClient;
+  const calls: unknown[][] = [];
+
+  beforeEach(() => {
+    calls.length = 0;
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const orig = qc.invalidateQueries.bind(qc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    qc.invalidateQueries = (...args: any[]) => {
+      calls.push(args);
+      return orig(...args);
+    };
+  });
+
+  it("成功后失效 projectPapers / projectLibraryStats / globalLibraryStats / project", async () => {
+    const { result } = renderHook(() => useAddFromSearch(9), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ pid: 9, candidates: [], defaultStatus: "candidate" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const keys = spiedKeys(calls);
+    expect(keys).toContainEqual(["projectPapers", 9]);
+    expect(keys).toContainEqual(["projectLibraryStats", 9]);
+    expect(keys).toContainEqual(["globalLibraryStats"]);
+    expect(keys).toContainEqual(["project", 9]);
   });
 });

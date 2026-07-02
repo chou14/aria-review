@@ -7,6 +7,7 @@
 import { useMemo, useRef } from "react";
 import type { EChartsOption } from "echarts";
 import { useOverview, useThreefield } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ChartCard, EChart, ExportMenu, envelopeChartProps } from "./viz";
 import type { EChartHandle, Envelope } from "./viz";
 import { buildThreeFieldSankeyOption } from "./viz/advancedCharts";
@@ -73,7 +74,7 @@ export function OverviewPanel({
   corpusId,
 }: {
   projectId: string;
-  corpusId: string;
+  corpusId: RCorpusId;
 }) {
   const { data, isLoading, isError, error } = useOverview(projectId, corpusId, true);
   const chartRef = useRef<EChartHandle>(null);

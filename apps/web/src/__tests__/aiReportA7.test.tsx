@@ -12,6 +12,9 @@
  */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("r1");
 
 const { downloadReportSpy, getCiteSpy } = vi.hoisted(() => ({
   downloadReportSpy: vi.fn(),
@@ -38,7 +41,7 @@ beforeEach(() => {
 });
 
 function renderReport() {
-  return render(<ReportPanel projectId="1" corpusId="r1" />);
+  return render(<ReportPanel projectId="1" corpusId={CID} />);
 }
 
 describe("ReportPanel A7", () => {
@@ -135,7 +138,7 @@ function withQuery(node: React.ReactNode) {
 
 describe("AI 面板统一外观 A7", () => {
   it("无 apiKey 时三面板均显示统一「未配置 LLM key」提示", () => {
-    const c1 = withQuery(<ChatPanel projectId="1" corpusId="r1" />);
+    const c1 = withQuery(<ChatPanel projectId="1" corpusId={CID} />);
     expect(c1.getByText(/未配置 LLM key/)).toBeInTheDocument();
     c1.unmount();
 
@@ -143,13 +146,13 @@ describe("AI 面板统一外观 A7", () => {
     expect(c2.getByText(/未配置 LLM key/)).toBeInTheDocument();
     c2.unmount();
 
-    const c3 = withQuery(<ReviewPanel projectId="1" corpusId="r1" />);
+    const c3 = withQuery(<ReviewPanel projectId="1" corpusId={CID} />);
     expect(c3.getByText(/未配置 LLM key/)).toBeInTheDocument();
     c3.unmount();
   });
 
   it("有 apiKey 时三面板均不显示提示", () => {
-    const c1 = withQuery(<ChatPanel projectId="1" corpusId="r1" apiKey="test-api-key" />);
+    const c1 = withQuery(<ChatPanel projectId="1" corpusId={CID} apiKey="test-api-key" />);
     expect(c1.queryByText(/未配置 LLM key/)).not.toBeInTheDocument();
     c1.unmount();
 
@@ -157,13 +160,13 @@ describe("AI 面板统一外观 A7", () => {
     expect(c2.queryByText(/未配置 LLM key/)).not.toBeInTheDocument();
     c2.unmount();
 
-    const c3 = withQuery(<ReviewPanel projectId="1" corpusId="r1" apiKey="test-api-key" />);
+    const c3 = withQuery(<ReviewPanel projectId="1" corpusId={CID} apiKey="test-api-key" />);
     expect(c3.queryByText(/未配置 LLM key/)).not.toBeInTheDocument();
     c3.unmount();
   });
 
   it("三面板均渲染统一空态引导 + .ai-panel 外壳", () => {
-    const c1 = withQuery(<ChatPanel projectId="1" corpusId="r1" />);
+    const c1 = withQuery(<ChatPanel projectId="1" corpusId={CID} />);
     expect(c1.container.querySelector(".ai-panel")).toBeTruthy();
     expect(c1.getByText(/开始提问/)).toBeInTheDocument();
     c1.unmount();
@@ -173,14 +176,14 @@ describe("AI 面板统一外观 A7", () => {
     expect(c2.getByText(/输入文本并点击/)).toBeInTheDocument();
     c2.unmount();
 
-    const c3 = withQuery(<ReviewPanel projectId="1" corpusId="r1" />);
+    const c3 = withQuery(<ReviewPanel projectId="1" corpusId={CID} />);
     expect(c3.container.querySelector(".ai-panel")).toBeTruthy();
     expect(c3.getByText(/填写研究主题/)).toBeInTheDocument();
     c3.unmount();
   });
 
   it("三面板无残留 inline #hex / crimson 色", () => {
-    const c1 = withQuery(<ChatPanel projectId="1" corpusId="r1" />);
+    const c1 = withQuery(<ChatPanel projectId="1" corpusId={CID} />);
     expect(c1.container.innerHTML).not.toMatch(/#[0-9a-fA-F]{6}|crimson/);
     c1.unmount();
 
@@ -188,7 +191,7 @@ describe("AI 面板统一外观 A7", () => {
     expect(c2.container.innerHTML).not.toMatch(/#[0-9a-fA-F]{6}|crimson/);
     c2.unmount();
 
-    const c3 = withQuery(<ReviewPanel projectId="1" corpusId="r1" />);
+    const c3 = withQuery(<ReviewPanel projectId="1" corpusId={CID} />);
     expect(c3.container.innerHTML).not.toMatch(/#[0-9a-fA-F]{6}|crimson/);
     c3.unmount();
   });

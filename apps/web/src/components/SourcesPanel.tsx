@@ -6,6 +6,7 @@
  * 注：H 指数的 g/m/被引列、Bradford 完整排名/累计% 为 A4 后端补，A2 仅渲染现有字段。
  */
 import { useSources } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ChartCard, DataTable } from "./viz";
 import type { DataTableColumn } from "./viz";
 
@@ -75,7 +76,7 @@ const bradfordCols: DataTableColumn<BradfordRow>[] = [
   { key: "cumPct", label: "累计%", align: "right", sortable: true, format: (v) => (v == null ? "—" : `${v}%`) },
 ];
 
-export function SourcesPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function SourcesPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useSources(projectId, corpusId);
   const err = isError ? error : undefined;
 
@@ -91,6 +92,7 @@ export function SourcesPanel({ projectId, corpusId }: { projectId: string; corpu
         <DataTable
           columns={topCols}
           rows={topRows}
+          getRowKey={(row) => row.source}
           initialSort={{ key: "articles", dir: "desc" }}
           emptyText="当前语料无期刊/来源字段数据"
         />
@@ -100,6 +102,7 @@ export function SourcesPanel({ projectId, corpusId }: { projectId: string; corpu
         <DataTable
           columns={hCols}
           rows={hRows}
+          getRowKey={(row) => row.source}
           initialSort={{ key: "h", dir: "desc" }}
           emptyText="当前语料无期刊/来源字段数据"
         />

@@ -253,7 +253,7 @@ def test_corpus_tool_function_definitions(session, fake_r):
 
 @SKIP_NO_R
 @pytest.mark.asyncio
-async def test_build_real_r_integration(session, session_factory):
+async def test_build_legacy_r8001_integration(session, session_factory):
     """真实 R 集成：seed project + 3 included papers → build → r_corpus_id → overview 可出。
 
     验证接缝: Postgres included 题录 → /parse-from-records → R bibliometrix 语料 → 分析可用。

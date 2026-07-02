@@ -12,6 +12,9 @@
  */
 import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("c1");
 
 // ---- mock echarts 实例 ----
 const { setOptionSpy, initSpy } = vi.hoisted(() => {
@@ -256,7 +259,7 @@ describe("ConceptualPanel 主题战略图 + 演进", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("主题战略图")).toBeInTheDocument();
     expect(screen.getByText("主题演进图")).toBeInTheDocument();
     expect(optionsWith((o) => seriesType(o) === "scatter").length).toBeGreaterThan(0);
@@ -272,20 +275,20 @@ describe("ConceptualPanel 主题战略图 + 演进", () => {
       data: { available: false, reason: "not_enough_data", message: "年份跨度不足" },
       isLoading: false, isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("缺少字段「DE」")).toBeInTheDocument();
     expect(screen.getByText("年份跨度不足")).toBeInTheDocument();
   });
 
   it("thematic error 态 → 错误，不显示 InsufficientData", () => {
     thematicSpy.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("HTTP 502") });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert").some((e) => e.textContent?.includes("HTTP 502"))).toBe(true);
     expect(screen.queryByText(/缺少字段/)).not.toBeInTheDocument();
   });
 
   it("thematic loading 态 → 加载中", () => {
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByText("加载中…").length).toBeGreaterThan(0);
   });
 });
@@ -302,7 +305,7 @@ describe("IntellectualPanel 历史引文图", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<IntellectualPanel projectId="1" corpusId="c1" />);
+    render(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("历史引文图")).toBeInTheDocument();
     expect(optionsWith((o) => seriesType(o) === "graph").length).toBeGreaterThan(0);
   });
@@ -312,7 +315,7 @@ describe("IntellectualPanel 历史引文图", () => {
       data: { available: false, reason: "missing_field", missingField: "CR", message: "缺参考文献字段" },
       isLoading: false, isError: false,
     });
-    render(<IntellectualPanel projectId="1" corpusId="c1" />);
+    render(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("缺少字段「CR」")).toBeInTheDocument();
   });
 
@@ -321,13 +324,13 @@ describe("IntellectualPanel 历史引文图", () => {
       data: { available: false, reason: "not_enough_data", message: "历史引文网络节点过少" },
       isLoading: false, isError: false,
     });
-    render(<IntellectualPanel projectId="1" corpusId="c1" />);
+    render(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("历史引文网络节点过少")).toBeInTheDocument();
   });
 
   it("histcite error 态 → 错误", () => {
     histciteSpy.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("网络错误") });
-    render(<IntellectualPanel projectId="1" corpusId="c1" />);
+    render(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert").some((e) => e.textContent?.includes("网络错误"))).toBe(true);
   });
 });
@@ -347,7 +350,7 @@ describe("OverviewPanel 三字段流向图", () => {
       },
       isLoading: false, isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("三字段流向图")).toBeInTheDocument();
     expect(optionsWith((o) => seriesType(o) === "sankey").length).toBeGreaterThan(0);
   });
@@ -357,13 +360,13 @@ describe("OverviewPanel 三字段流向图", () => {
       data: { available: false, reason: "missing_field", missingField: "SO", message: "缺来源字段" },
       isLoading: false, isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("缺少字段「SO」")).toBeInTheDocument();
   });
 
   it("threefield error 态 → 错误", () => {
     threefieldSpy.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: new Error("HTTP 500") });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert").some((e) => e.textContent?.includes("HTTP 500"))).toBe(true);
   });
 });

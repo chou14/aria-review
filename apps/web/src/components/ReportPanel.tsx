@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { downloadReport, getCite, ApiError, type ReportFormat, type ReportSection } from "../api/client";
+import type { RCorpusId } from "../api/corpusIds";
 
 type CiteStyle = "apa" | "gbt7714" | "mla";
 
@@ -15,7 +16,7 @@ const SECTION_OPTIONS: { id: ReportSection; label: string }[] = [
 
 const DEFAULT_SECTIONS: ReportSection[] = ["overview", "sources", "authors", "documents", "references"];
 
-export function ReportPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function ReportPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [style, setStyle] = useState<CiteStyle>("apa");

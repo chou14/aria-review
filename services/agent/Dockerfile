@@ -10,6 +10,8 @@ ARG PIP_TRUSTED_HOST=
 
 WORKDIR /app
 COPY requirements.txt .
+# requirements.txt 是顶层依赖声明；requirements.lock 是 Python 3.12 环境的复现基线，
+# 当前镜像仍按声明安装，lock 用于排查/重建一致环境。
 # 仅当 build-arg 给定时才注入 --index-url / --trusted-host, 否则走 pip 默认官方源。
 RUN set -eux; \
     EXTRA=""; \

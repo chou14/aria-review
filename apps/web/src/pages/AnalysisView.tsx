@@ -4,7 +4,8 @@
  * 路由：/projects/:pid/analysis/:view?（view 默认 overview）
  *
  * 数据流闸门：
- *   - 无 activeCorpus(null) 或 status≠ready → 显示「构建分析语料」提示（复用 CorpusStatusCard）
+ *   - 无 ready activeCorpus → 显示「构建分析语料」提示（复用 CorpusStatusCard）
+ *   - latestCorpus failed/parsing → 显示失败原因或重新构建出路
  *   - stale=true → 顶部警告条（仍允许查看旧分析）
  *   - ready → 给面板传 projectId={String(pid)} + corpusId={activeCorpus.rCorpusId}
  *
@@ -15,40 +16,130 @@
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useProject, useMaterializeCorpus } from "../api/agentHooks";
-import type { ActiveCorpus } from "../api/agentHooks";
+import { getPanelRCorpusId, useProject, useMaterializeCorpus } from "../api/agentHooks";
+import type { ActiveCorpus, LatestCorpus } from "../api/agentHooks";
+import type { RCorpusId } from "../api/corpusIds";
+import { useHealth } from "../api/hooks";
 import { useLlmSettings } from "../api/useLlmSettings";
-import { AnalysisSidebar, findViewMeta, type AnalysisViewId } from "../components/AnalysisSidebar";
+import { AnalysisSidebar, type AnalysisViewId } from "../components/AnalysisSidebar";
+import {
+  DEFAULT_ANALYSIS_VIEW,
+  findAnalysisView,
+  isAnalysisViewId,
+} from "../components/analysisViews";
 import { AnalysisFrame } from "../components/AnalysisFrame";
 import { ErrorBoundary } from "../components/ErrorBoundary";
-
-// 13 个现有面板（原样复用，只换容器）
-import { OverviewPanel } from "../components/OverviewPanel";
-import { SourcesPanel } from "../components/SourcesPanel";
-import { AuthorsPanel } from "../components/AuthorsPanel";
-import { DocumentsPanel } from "../components/DocumentsPanel";
-import { ConceptualPanel } from "../components/ConceptualPanel";
-import { IntellectualPanel } from "../components/IntellectualPanel";
-import { SocialPanel } from "../components/SocialPanel";
-import { ScreenPanel } from "../components/ScreenPanel";
-import { PrismaPanel } from "../components/PrismaPanel";
-import { ChatPanel } from "../components/ChatPanel";
-import { AiToolsPanel } from "../components/AiToolsPanel";
-import { ReviewPanel } from "../components/ReviewPanel";
-import { ReportPanel } from "../components/ReportPanel";
+import { ProjectGate } from "../components/ProjectGate";
 
 // ---------------------------------------------------------------------------
 // 数据流闸门：CorpusStatusCard（复用 M2 逻辑）
 // ---------------------------------------------------------------------------
 
+const ANALYSIS_SERVICE_COMMAND = "docker compose --profile analysis up -d";
+
+function RAnalysisServiceGuide() {
+  return (
+    <AnalysisFrame
+      title="R 分析服务未启动"
+      desc="bibliometrix 分析依赖可选的 R 服务；Agent 已连接，分析服务尚未启用。"
+    >
+      <div className="placeholder-zone" role="status" aria-label="R 分析服务未启动">
+        <h3>分析功能需要 R 服务</h3>
+        <p>
+          当前只启动了 Web、Agent 与数据库。请在项目根目录启用 analysis profile，
+          等服务启动完成后刷新页面。
+        </p>
+        <code
+          style={{
+            display: "inline-block",
+            marginTop: "0.5rem",
+            padding: "0.55rem 0.7rem",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--paper-2)",
+            color: "var(--ink)",
+            userSelect: "all",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {ANALYSIS_SERVICE_COMMAND}
+        </code>
+      </div>
+    </AnalysisFrame>
+  );
+}
+
 interface CorpusStatusCardProps {
   projectId: number;
   activeCorpus: ActiveCorpus | null | undefined;
+  latestCorpus: LatestCorpus | null | undefined;
 }
 
-function CorpusStatusCard({ projectId, activeCorpus }: CorpusStatusCardProps) {
+function CorpusStatusCard({ projectId, activeCorpus, latestCorpus }: CorpusStatusCardProps) {
   const mat = useMaterializeCorpus(projectId);
   const isBuilding = mat.isPending;
+  const latestStatus = latestCorpus?.status ?? activeCorpus?.status;
+  const latestError =
+    latestCorpus?.errorReason ??
+    activeCorpus?.errorReason ??
+    (mat.error as Error | null)?.message ??
+    "未知错误";
+
+  // ---- 当前 mutation 失败 / 最近一次构建失败 ----
+  if (mat.isError || latestStatus === "failed") {
+    return (
+      <div
+        className="card corpus-status-card"
+        role="alert"
+        style={{ marginBottom: "1.5rem", borderColor: "var(--danger)" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--danger)" }}>语料构建失败</h4>
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.83rem", color: "var(--ink-3)" }}>
+              {latestError}
+            </p>
+          </div>
+          <button
+            className="btn btn-danger"
+            onClick={() => mat.mutate()}
+            disabled={isBuilding}
+            style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
+          >
+            {isBuilding ? "构建中…" : "重试构建"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- 同步构建中 / 孤儿 parsing 行 ----
+  if (latestStatus === "parsing") {
+    return (
+      <div className="card corpus-status-card" style={{ marginBottom: "1.5rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: "0.95rem" }}>
+              {isBuilding ? "分析语料构建中" : "上次构建未完成（可能中断）"}
+            </h4>
+            <p style={{ margin: "0.25rem 0 0", fontSize: "0.83rem", color: "var(--ink-3)" }}>
+              {isBuilding
+                ? `正在构建 ${latestCorpus?.documentCount ?? activeCorpus?.documentCount ?? 0} 篇题录的分析语料。`
+                : "上次请求可能因关页或网关超时中断，可直接重新构建。"}
+            </p>
+          </div>
+          <button
+            className="btn"
+            onClick={() => mat.mutate()}
+            disabled={isBuilding}
+            style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
+          >
+            {isBuilding ? "构建中…" : "重新构建"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ---- 无 active corpus ----
   if (!activeCorpus) {
@@ -70,47 +161,6 @@ function CorpusStatusCard({ projectId, activeCorpus }: CorpusStatusCardProps) {
             {isBuilding ? "构建中…" : "构建分析语料"}
           </button>
         </div>
-        {mat.isError && (
-          <p style={{ margin: "0.5rem 0 0", color: "var(--red)", fontSize: "0.83rem" }}>
-            构建失败：{(mat.error as Error)?.message ?? "未知错误"}
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  // ---- active corpus failed ----
-  if (activeCorpus.status === "failed") {
-    return (
-      <div className="card corpus-status-card" style={{ marginBottom: "1.5rem", borderColor: "var(--danger)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
-          <div>
-            <h4 style={{ margin: 0, fontSize: "0.95rem", color: "var(--danger)" }}>语料构建失败</h4>
-            <p style={{ margin: "0.25rem 0 0", fontSize: "0.83rem", color: "var(--ink-3)" }}>
-              上次构建遇到错误，请检查 included 论文并重试。
-            </p>
-          </div>
-          <button
-            className="btn btn-danger"
-            onClick={() => mat.mutate()}
-            disabled={isBuilding}
-            style={{ marginLeft: "auto", whiteSpace: "nowrap" }}
-          >
-            {isBuilding ? "构建中…" : "重试构建"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---- active corpus parsing ----
-  if (activeCorpus.status === "parsing") {
-    return (
-      <div className="card corpus-status-card" style={{ marginBottom: "1.5rem" }}>
-        <h4 style={{ margin: 0, fontSize: "0.95rem" }}>语料解析中…</h4>
-        <p style={{ margin: "0.25rem 0 0", fontSize: "0.83rem", color: "var(--ink-3)" }}>
-          R 服务正在解析 {activeCorpus.documentCount} 篇题录，请稍候后刷新。
-        </p>
       </div>
     );
   }
@@ -167,7 +217,7 @@ interface PanelDispatchProps {
   /** 项目 id 字符串（Panel props 接受 string） */
   projectId: string;
   /** R 字符串语料 id（分析 REST 路径参数，非 DB int） */
-  corpusId: string;
+  corpusId: RCorpusId;
   /** 是否已有 ready corpus（无 corpus 的面板仍可渲染 Screen/Prisma） */
   hasCorpus: boolean;
   /** M5: LLM 配置（从 useLlmSettings 读取，注入 AI 面板） */
@@ -175,13 +225,9 @@ interface PanelDispatchProps {
 }
 
 function PanelDispatch({ view, projectId, corpusId, hasCorpus, llm }: PanelDispatchProps) {
-  // 需要 corpus 的面板，无 corpus 时显示提示。
-  // codex M3-P2#1: screen(AI相关性筛选)走 /corpus/{id}/ai/screen, 需 rCorpusId, 归入需 corpus;
-  // 仅 prisma 真正只依赖 projectId(走 /projects/{pid}/prisma)。
-  // review 走项目级可溯源综述(run_review 用 project markdowns,不依赖 R corpus)→ 不 gate
-  const needsCorpus = view !== "prisma" && view !== "review";
+  const viewDefinition = findAnalysisView(view);
 
-  if (needsCorpus && !hasCorpus) {
+  if (viewDefinition.requiresCorpus && !hasCorpus) {
     return (
       <div className="placeholder-zone">
         <h3>需先构建分析语料</h3>
@@ -190,57 +236,40 @@ function PanelDispatch({ view, projectId, corpusId, hasCorpus, llm }: PanelDispa
     );
   }
 
-  switch (view) {
-    case "overview":     return <OverviewPanel     projectId={projectId} corpusId={corpusId} />;
-    case "sources":      return <SourcesPanel      projectId={projectId} corpusId={corpusId} />;
-    case "authors":      return <AuthorsPanel      projectId={projectId} corpusId={corpusId} />;
-    case "documents":    return <DocumentsPanel    projectId={projectId} corpusId={corpusId} />;
-    case "conceptual":   return <ConceptualPanel   projectId={projectId} corpusId={corpusId} />;
-    case "intellectual": return <IntellectualPanel projectId={projectId} corpusId={corpusId} />;
-    case "social":       return <SocialPanel       projectId={projectId} corpusId={corpusId} />;
-    case "screen":       return <ScreenPanel       projectId={projectId} corpusId={corpusId} />;
-    case "prisma":       return <PrismaPanel       projectId={projectId} />;
-    // M5: chat/review 注入 LLM 配置（prop 透传，内部逻辑不变）
-    case "chat":         return <ChatPanel         projectId={projectId} corpusId={corpusId} llm={llm} />;
-    case "aitools":      return <AiToolsPanel      projectId={projectId} corpusId={corpusId} llm={llm} />;
-    case "review":       return <ReviewPanel       projectId={projectId} corpusId={corpusId} llm={llm} />;
-    case "report":       return <ReportPanel       projectId={projectId} corpusId={corpusId} />;
-    default:             return null;
-  }
+  return viewDefinition.renderPanel({ projectId, corpusId, llm });
 }
 
 // ---------------------------------------------------------------------------
 // AnalysisView 主体
 // ---------------------------------------------------------------------------
 
-/** 合法的 AnalysisViewId 集合，用于参数校验 */
-const VALID_VIEWS = new Set<string>([
-  "overview", "sources", "authors",
-  "documents", "conceptual", "intellectual", "social",
-  "screen", "prisma",
-  "chat", "aitools", "review", "report",
-]);
-
 export function AnalysisView() {
   const { pid, view } = useParams<{ pid: string; view?: string }>();
   const pidNum = Number(pid);
   const navigate = useNavigate();
+  const health = useHealth();
 
   // 当前视图（URL 参数 → 默认 overview）
   const activeView: AnalysisViewId =
-    view && VALID_VIEWS.has(view) ? (view as AnalysisViewId) : "overview";
+    isAnalysisViewId(view) ? view : DEFAULT_ANALYSIS_VIEW;
+  const viewMeta = findAnalysisView(activeView);
 
   // codex M3-P2#2: 非法 view 时把 URL 重定向到 overview, 避免地址与实际视图/sidebar 高亮不一致。
   useEffect(() => {
-    if (view && !VALID_VIEWS.has(view) && pid) {
-      navigate(`/projects/${pid}/analysis/overview`, { replace: true });
+    if (view && !isAnalysisViewId(view) && pid) {
+      navigate(`/projects/${pid}/analysis/${DEFAULT_ANALYSIS_VIEW}`, { replace: true });
     }
   }, [view, pid, navigate]);
 
-  const { data } = useProject(pidNum > 0 ? pidNum : 0);
-  const activeCorpus = data?.activeCorpus ?? null;
+  const project = useProject(pidNum > 0 ? pidNum : 0);
+  const activeCorpus = project.data?.activeCorpus ?? null;
+  const latestCorpus = project.data?.latestCorpus ?? null;
+  const rCorpusId = getPanelRCorpusId(activeCorpus);
   const corpusReady = activeCorpus?.status === "ready";
-  const isStale = corpusReady && activeCorpus?.stale === true;
+  const latestNeedsAction = latestCorpus?.status === "failed" || latestCorpus?.status === "parsing";
+  const isStale = corpusReady && activeCorpus?.stale === true && !latestNeedsAction;
+  const showCorpusStatusCard = viewMeta.requiresCorpus && (!corpusReady || latestNeedsAction);
+  const rAnalysisServiceDown = health.data?.status === "ok" && health.data?.rService === "down";
 
   // M5: 读取 LLM 配置，注入 AI 面板（localStorage 单源，跨组件共享）
   const { settings: llm } = useLlmSettings();
@@ -258,65 +287,74 @@ export function AnalysisView() {
     navigate(`/projects/${pid}/analysis/${v}`);
   }
 
-  // 获取当前视图元数据（用于 AnalysisFrame 标题）
-  const viewMeta = findViewMeta(activeView);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 100px)" }}>
-      {/* stale 警告条（仅 ready + stale 时显示，允许查看旧分析） */}
-      {isStale && pidNum > 0 && <StaleBar projectId={pidNum} />}
+    <ProjectGate project={project}>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 100px)" }}>
+        {/* stale 警告条（仅 ready + stale 时显示，允许查看旧分析） */}
+        {isStale && pidNum > 0 && <StaleBar projectId={pidNum} />}
 
-      <div
-        className={`app-shell-2col${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
-        style={{ flex: 1, alignItems: "stretch" }}
-      >
-        {/* 左侧分组导航 */}
-        <AnalysisSidebar
-          activeView={activeView}
-          onSelect={handleSelect}
-          activeCorpus={activeCorpus}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-        />
+        <div
+          className={`app-shell-2col${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
+          style={{ flex: 1, alignItems: "stretch" }}
+        >
+          {/* 左侧分组导航 */}
+          <AnalysisSidebar
+            activeView={activeView}
+            onSelect={handleSelect}
+            activeCorpus={activeCorpus}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+          />
 
-        {/* 右侧内容区 */}
-        <div style={{ flex: 1, overflow: "auto" }}>
-          {/* 数据流闸门：无语料/非 ready 显示构建卡片 */}
-          {(!corpusReady) && activeView !== "review" && pidNum > 0 && (
-            <div style={{ padding: "1.5rem" }}>
-              <CorpusStatusCard projectId={pidNum} activeCorpus={activeCorpus} />
-            </div>
-          )}
-
-          {/* ready 或 prisma(只需 projectId) 时渲染面板; screen 等需 corpus, 仅 ready 渲染 */}
-          {(corpusReady || activeView === "prisma" || activeView === "review") && (
-            <AnalysisFrame
-              title={viewMeta?.title ?? activeView}
-              desc={viewMeta?.desc ?? ""}
-            >
-              {/* 面板级隔离：单个分析视图渲染崩溃（数据异常）不波及侧栏/顶栏。
-                  key 含 activeView + 项目 id：切换视图或切换项目（同一视图）后都重置 boundary，
-                  否则崩溃态会在切项目后残留 fallback (codex P2)。 */}
-              <ErrorBoundary
-                key={`${activeView}:${pidNum}`}
-                fallback={
-                  <div className="placeholder-zone state state-err" role="alert">
-                    此分析视图渲染出错（数据可能异常），请切换其他视图或返回项目列表
+          {/* 右侧内容区 */}
+          <div style={{ flex: 1, overflow: "auto" }}>
+            {rAnalysisServiceDown && viewMeta.requiresR ? (
+              <RAnalysisServiceGuide />
+            ) : (
+              <>
+                {/* 数据流闸门：无 ready 语料或最近构建需处理时显示构建卡片 */}
+                {showCorpusStatusCard && pidNum > 0 && (
+                  <div style={{ padding: "1.5rem" }}>
+                    <CorpusStatusCard
+                      projectId={pidNum}
+                      activeCorpus={activeCorpus}
+                      latestCorpus={latestCorpus}
+                    />
                   </div>
-                }
-              >
-                <PanelDispatch
-                  view={activeView}
-                  projectId={pidNum > 0 ? String(pidNum) : ""}
-                  corpusId={activeCorpus?.rCorpusId ?? ""}
-                  hasCorpus={corpusReady}
-                  llm={llmOptions}
-                />
-              </ErrorBoundary>
-            </AnalysisFrame>
-          )}
+                )}
+
+                {/* 面板可用性由 registry.requiresCorpus 控制；prisma/review 可无 corpus 渲染。 */}
+                {(!viewMeta.requiresCorpus || corpusReady) && (
+                  <AnalysisFrame
+                    title={viewMeta.title}
+                    desc={viewMeta.desc}
+                  >
+                    {/* 面板级隔离：单个分析视图渲染崩溃（数据异常）不波及侧栏/顶栏。
+                        key 含 activeView + 项目 id：切换视图或切换项目（同一视图）后都重置 boundary，
+                        否则崩溃态会在切项目后残留 fallback (codex P2)。 */}
+                    <ErrorBoundary
+                      key={`${activeView}:${pidNum}`}
+                      fallback={
+                        <div className="placeholder-zone state state-err" role="alert">
+                          此分析视图渲染出错（数据可能异常），请切换其他视图或返回项目列表
+                        </div>
+                      }
+                    >
+                      <PanelDispatch
+                        view={activeView}
+                        projectId={pidNum > 0 ? String(pidNum) : ""}
+                        corpusId={rCorpusId}
+                        hasCorpus={corpusReady}
+                        llm={llmOptions}
+                      />
+                    </ErrorBoundary>
+                  </AnalysisFrame>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </ProjectGate>
   );
 }

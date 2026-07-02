@@ -7,8 +7,8 @@
  *   - "加入并纳入"（defaultStatus=included）
  * 调 useAddFromSearch，成功后显示 imported/skipped 反馈，清空选择。
  */
-import { useState, useCallback, useEffect } from "react";
-import type { SearchCandidate } from "../api/client";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { FromSearchResult, SearchCandidate } from "../api/client";
 import { useAddFromSearch } from "../api/agentHooks";
 
 interface Props {
@@ -20,26 +20,53 @@ interface Props {
   searchCount?: number;
   /** 最近一轮返回的候选数。 */
   latestCount?: number;
+  /** 上游限流/超时时为 true，表示候选可能不完整。 */
+  partial?: boolean;
+  partialReason?: string | null;
 }
 
 interface ImportFeedback {
   imported: number;
   skipped: number;
-  failed: number;
+  failed: FromSearchResult["failed"];
+  failedCount: number;
 }
 
-export function SearchCandidateCards({ projectId, candidates, query, searchCount, latestCount }: Props) {
+export function SearchCandidateCards({
+  projectId,
+  candidates,
+  query,
+  searchCount,
+  latestCount,
+  partial = false,
+  partialReason,
+}: Props) {
   // 默认全选
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(candidates.map((c) => c.candidate_id)),
   );
+  const previousCandidateIdsRef = useRef<Set<string>>(
+    new Set(candidates.map((c) => c.candidate_id)),
+  );
   const [feedback, setFeedback] = useState<ImportFeedback | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // C: 候选集合变化时（同 run 内第二次检索）重置为全选新候选，清除旧选择残留
+  // C: 候选集合变化时仅默认勾选新候选，保留已有候选的人工选择状态。
   const candidateKey = candidates.map((c) => c.candidate_id).join(",");
   useEffect(() => {
-    setSelected(new Set(candidates.map((c) => c.candidate_id)));
+    const currentCandidateIds = candidates.map((c) => c.candidate_id);
+    const previousCandidateIds = previousCandidateIdsRef.current;
+
+    setSelected((prev) => {
+      const next = new Set<string>();
+      currentCandidateIds.forEach((id) => {
+        if (prev.has(id) || !previousCandidateIds.has(id)) {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+    previousCandidateIdsRef.current = new Set(currentCandidateIds);
     setFeedback(null);
     setActionError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,13 +92,25 @@ export function SearchCandidateCards({ projectId, candidates, query, searchCount
       if (isPending) return;
       const chosen = candidates.filter((c) => selected.has(c.candidate_id));
       if (chosen.length === 0) return;
+      if (
+        defaultStatus === "included" &&
+        chosen.length === candidates.length &&
+        !window.confirm(`确认将 ${chosen.length} 篇全部加入并纳入？`)
+      ) {
+        return;
+      }
 
       setFeedback(null);
       setActionError(null);
 
       try {
         const result = await mutateAsync({ pid: projectId, candidates: chosen, defaultStatus });
-        setFeedback({ imported: result.imported, skipped: result.skipped, failed: result.failed ?? 0 });
+        setFeedback({
+          imported: result.imported,
+          skipped: result.skipped,
+          failed: result.failed ?? [],
+          failedCount: result.failedCount ?? result.failed?.length ?? 0,
+        });
         // 入库后清空选择（已入库条目不再高亮）
         setSelected(new Set());
       } catch (e) {
@@ -81,16 +120,30 @@ export function SearchCandidateCards({ projectId, candidates, query, searchCount
     [candidates, selected, isPending, mutateAsync, projectId],
   );
 
+  const handleReselectFailed = useCallback(() => {
+    if (!feedback) return;
+    const candidateIds = new Set(candidates.map((c) => c.candidate_id));
+    const failedIds = feedback.failed
+      .map((item) => item.candidateId)
+      .filter((id): id is string => !!id && candidateIds.has(id));
+    setSelected(new Set(failedIds));
+  }, [candidates, feedback]);
+
   if (candidates.length === 0) {
     return (
       <div className="candidate-cards-empty" role="status">
-        暂无候选
+        {partial ? `检索被限流或超时，暂无候选${partialReason ? `：${partialReason}` : ""}` : "暂无候选"}
       </div>
     );
   }
 
-  const selectedCount = selected.size;
+  const selectedCount = candidates.filter((c) => selected.has(c.candidate_id)).length;
   const hasSelection = selectedCount > 0;
+  const failedIdsInCandidates = feedback
+    ? feedback.failed.filter((item) =>
+        item.candidateId ? candidates.some((c) => c.candidate_id === item.candidateId) : false
+      )
+    : [];
 
   return (
     <div className="candidate-cards" aria-label={`检索候选文献 ${candidates.length} 篇`}>
@@ -115,6 +168,11 @@ export function SearchCandidateCards({ projectId, candidates, query, searchCount
           {hasSelection ? `已选 ${selectedCount} 篇` : "未选"}
         </span>
       </div>
+      {partial && (
+        <div className="candidate-partial-note" role="status">
+          检索被限流或超时，本次仅返回部分结果{partialReason ? `：${partialReason}` : ""}
+        </div>
+      )}
 
       <ul className="candidate-list" role="list">
         {candidates.map((c) => {
@@ -231,10 +289,33 @@ export function SearchCandidateCards({ projectId, candidates, query, searchCount
               跳过 {feedback.skipped} 篇（已在库中）
             </span>
           )}
-          {feedback.failed > 0 && (
+          {feedback.failedCount > 0 && (
             <span className="badge badge-soft state-err">
-              失败 {feedback.failed} 篇
+              失败 {feedback.failedCount} 篇
             </span>
+          )}
+          {feedback.failedCount > 0 && (
+            <div className="candidate-failed-panel">
+              <details className="candidate-failed-details">
+                <summary>失败明细</summary>
+                <ul>
+                  {feedback.failed.map((item, index) => (
+                    <li key={`${item.candidateId ?? "failed"}-${index}`}>
+                      <span className="candidate-failed-title">{item.title}</span>
+                      <span className="candidate-failed-reason">{item.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <button
+                className="btn"
+                type="button"
+                disabled={failedIdsInCandidates.length === 0}
+                onClick={handleReselectFailed}
+              >
+                只重选失败项
+              </button>
+            </div>
           )}
         </div>
       )}

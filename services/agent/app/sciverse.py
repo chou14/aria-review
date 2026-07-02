@@ -32,9 +32,17 @@ def sciverse_config(base_url: str | None = None, api_token: str | None = None) -
     if resolved_token.lower().startswith("bearer "):
         resolved_token = resolved_token[7:].strip()
     if not raw_base:
-        raise ApiError(400, "SCIVERSE_NOT_CONFIGURED", "Sciverse Base URL 未配置")
+        raise ApiError(
+            400,
+            "SCIVERSE_NOT_CONFIGURED",
+            "Sciverse Base URL 未配置：请到设置页配置 Sciverse 服务地址；也可通过环境变量 SCIVERSE_BASE_URL 注入。",
+        )
     if not resolved_token:
-        raise ApiError(400, "SCIVERSE_NOT_CONFIGURED", "Sciverse API Token 未配置")
+        raise ApiError(
+            400,
+            "SCIVERSE_NOT_CONFIGURED",
+            "Sciverse API Token 未配置：请到设置页配置 SCIVERSE_API_TOKEN；也可通过环境变量 SCIVERSE_API_TOKEN 注入。",
+        )
     try:
         resolved_base = normalize_external_url(raw_base)
     except ValueError as exc:
@@ -46,7 +54,7 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _raise_sciverse(status: int, body: Any | None) -> None:
+def _raise_sciverse(status: int, body: Any | None, base_url: str | None = None) -> None:
     if status < 400:
         return
     code = "SCIVERSE_ERROR"
@@ -55,7 +63,24 @@ def _raise_sciverse(status: int, body: Any | None) -> None:
         code = str(body.get("code") or body.get("error") or code)
         message = str(body.get("message") or body.get("error") or message)
     mapped_status = 502 if status >= 500 else status
+    if status >= 500:
+        addr = f"地址: {base_url}；" if base_url else ""
+        message = (
+            f"Sciverse 服务异常（{addr}HTTP {status}: {message}）。"
+            "请检查 Sciverse 服务地址、网络连通性、代理/防火墙和服务状态。"
+        )
     raise ApiError(mapped_status, code, message)
+
+
+def _http_error_reason(exc: httpx.HTTPError) -> str:
+    text = str(exc).strip() or exc.__class__.__name__
+    if isinstance(exc, httpx.TimeoutException):
+        return f"请求超时（{exc.__class__.__name__}: {text}）"
+    if isinstance(exc, httpx.ConnectError):
+        return f"连接失败（{exc.__class__.__name__}: {text}）"
+    if isinstance(exc, httpx.NetworkError):
+        return f"网络错误（{exc.__class__.__name__}: {text}）"
+    return f"请求失败（{exc.__class__.__name__}: {text}）"
 
 
 def _candidate_id(row: dict[str, Any]) -> str:
@@ -280,10 +305,17 @@ class SciverseClient:
         try:
             resp = await client.request(method, path, headers=_headers(self._cfg.api_token), **kwargs)
             body = _safe_json(resp)
-            _raise_sciverse(resp.status_code, body)
+            _raise_sciverse(resp.status_code, body, self._cfg.base_url)
             return resp.status_code, body
         except httpx.HTTPError as exc:
-            raise ApiError(503, "SCIVERSE_UNAVAILABLE", f"Sciverse 服务不可达: {exc}") from exc
+            raise ApiError(
+                503,
+                "SCIVERSE_UNAVAILABLE",
+                (
+                    f"Sciverse 服务不可达（地址: {self._cfg.base_url}；原因: {_http_error_reason(exc)}）。"
+                    "请检查 Sciverse 服务地址、网络连通性、代理/防火墙和服务状态。"
+                ),
+            ) from exc
         finally:
             if close_client:
                 await client.aclose()

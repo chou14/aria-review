@@ -12,15 +12,21 @@ import { useProjects } from "../../api/agentHooks";
 /** 后端状态指示点（原 App.tsx BackendStatus，搬入 TopBar） */
 function BackendStatus() {
   const health = useHealth();
-  const up = health.data?.status === "ok" && health.data?.rService === "up";
-  const cls = health.data ? (up ? "up" : "down") : "";
+  const agentUp = health.data?.status === "ok";
+  const rService = health.data?.rService ?? "unknown";
+  const up = agentUp && rService === "up";
+  const rDown = agentUp && rService === "down";
+  // 无数据时 refetchInterval 会把 error 拉回 pending 重试 ~8s，凭 failureCount 保持
+  // 「Agent 不可达」标签稳定，避免与「连接中」来回振荡
+  const agentDown = health.isError || (!health.data && health.failureCount > 0);
+  const cls = health.data ? (up ? "up" : rDown ? "down" : "") : agentDown ? "down" : "";
   const label = health.data
-    ? up ? "后端就绪" : "后端部分不可用"
-    : health.isError ? "后端不可达" : "连接中";
+    ? up ? "后端就绪" : rDown ? "R 分析服务未启动" : "R 分析服务状态未知"
+    : agentDown ? "Agent 不可达" : "连接中";
   return (
     <span
       className={`status-dot ${cls}`}
-      title={`agent ${health.data?.status ?? "?"} · R ${health.data?.rService ?? "?"}`}
+      title={`agent ${health.data?.status ?? "?"} · R ${rService}`}
     >
       <span className="led" /> {label}
     </span>

@@ -12,6 +12,7 @@
 import { render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import { asRCorpusId } from "../../api/corpusIds";
 
 const { getAiJobSpy, listAiJobsSpy } = vi.hoisted(() => ({
   getAiJobSpy: vi.fn(),
@@ -31,7 +32,7 @@ import { ReviewPanel } from "../ReviewPanel";
 import { ApiError } from "../../api/client";
 
 const PID = "40";
-const CORPUS = "87f38425-5745-419a-983a-c53239a839e9";
+const CORPUS = asRCorpusId("87f38425-5745-419a-983a-c53239a839e9");
 const KEY = `bibliocn.ai.review.${PID}.${CORPUS}`;
 
 function reviewJob(id: number, text: string) {

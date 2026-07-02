@@ -11,10 +11,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EChartsOption } from "echarts";
 import { useCitedRefs, useDocuments, useKeywordTrend } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ensureWordCloud } from "./viz/echartsSetup";
 import { ChartCard, DataTable, EChart, ExportMenu, InsufficientData, envelopeChartProps } from "./viz";
 import type { DataTableColumn, EChartHandle, Envelope } from "./viz";
-import { buildKeywordRiverOption } from "./viz/advancedCharts";
+import { buildKeywordRiverOption, getKeywordTrendInsufficientData } from "./viz/advancedCharts";
 import type { KeywordTrendData } from "./viz/advancedCharts";
 
 type CitedRefItem = { ref: string; count: number };
@@ -112,7 +113,7 @@ const citedRefCols: DataTableColumn<CitedRefRow>[] = [
 // 面板
 // ---------------------------------------------------------------------------
 
-export function DocumentsPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function DocumentsPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useDocuments(projectId, corpusId);
   const err = isError ? error : undefined;
   const chartRef = useRef<EChartHandle>(null);
@@ -157,9 +158,13 @@ export function DocumentsPanel({ projectId, corpusId }: { projectId: string; cor
     data: trend,
   });
   const riverData = trend && trend.available ? trend.data : undefined;
-  const riverOption = useMemo<EChartsOption>(
-    () => (riverData ? buildKeywordRiverOption(riverData) : {}),
+  const riverInsufficient = useMemo(
+    () => (riverData ? getKeywordTrendInsufficientData(riverData) : null),
     [riverData],
+  );
+  const riverOption = useMemo<EChartsOption>(
+    () => (riverData && !riverInsufficient ? buildKeywordRiverOption(riverData) : {}),
+    [riverData, riverInsufficient],
   );
 
   // A4: 高被引参考文献（信封）
@@ -250,10 +255,20 @@ export function DocumentsPanel({ projectId, corpusId }: { projectId: string; cor
         subtitle="主题热度逐年流变（themeRiver）"
         loading={riverProps.loading}
         error={riverProps.error}
-        empty={riverProps.empty}
-        hint={riverData ? "每条色带为一个高频关键词，宽度表示该年频次" : undefined}
+        empty={
+          riverInsufficient ? (
+            <InsufficientData
+              reason={riverInsufficient.reason}
+              message={riverInsufficient.message}
+              howto={riverInsufficient.howto}
+            />
+          ) : (
+            riverProps.empty
+          )
+        }
+        hint={riverData && !riverInsufficient ? "每条色带为一个高频关键词，宽度表示该年频次" : undefined}
         actions={
-          riverData ? (
+          riverData && !riverInsufficient ? (
             <ExportMenu
               filename="关键词历时演变"
               target={{

@@ -1,0 +1,286 @@
+{
+  "paper_id": 10,
+  "attachment_id": 50,
+  "page_count": 2,
+  "blocks": [
+    {
+      "block_idx": 0,
+      "type": "title",
+      "text_level": 1,
+      "page_no": 1,
+      "md_line_start": 1,
+      "md_line_end": 1,
+      "bbox": [
+        72.0,
+        90.0,
+        523.0,
+        120.0
+      ],
+      "section_title": "Deep Learning Approaches for Bibliometric Network Analysis",
+      "text_preview": "Deep Learning Approaches for Bibliometric Network Analysis"
+    },
+    {
+      "block_idx": 1,
+      "type": "text",
+      "text_level": null,
+      "page_no": 1,
+      "md_line_start": 3,
+      "md_line_end": 3,
+      "bbox": [
+        72.0,
+        130.0,
+        400.0,
+        148.0
+      ],
+      "section_title": "Deep Learning Approaches for Bibliometric Network Analysis",
+      "text_preview": "Jane Doe, Richard Roe, and Mary Major"
+    },
+    {
+      "block_idx": 2,
+      "type": "title",
+      "text_level": 2,
+      "page_no": 1,
+      "md_line_start": 5,
+      "md_line_end": 5,
+      "bbox": [
+        72.0,
+        160.0,
+        200.0,
+        178.0
+      ],
+      "section_title": "Abstract",
+      "text_preview": "Abstract"
+    },
+    {
+      "block_idx": 3,
+      "type": "text",
+      "text_level": null,
+      "page_no": 1,
+      "md_line_start": 7,
+      "md_line_end": 7,
+      "bbox": [
+        72.0,
+        185.0,
+        523.0,
+        250.0
+      ],
+      "section_title": "Abstract",
+      "text_preview": "This study investigates the application of graph neural networks to large-scale bibliometric citation networks. We propo"
+    },
+    {
+      "block_idx": 4,
+      "type": "title",
+      "text_level": 2,
+      "page_no": 1,
+      "md_line_start": 9,
+      "md_line_end": 9,
+      "bbox": [
+        72.0,
+        290.0,
+        240.0,
+        308.0
+      ],
+      "section_title": "1 Introduction",
+      "text_preview": "1 Introduction"
+    },
+    {
+      "block_idx": 5,
+      "type": "text",
+      "text_level": null,
+      "page_no": 1,
+      "md_line_start": 11,
+      "md_line_end": 11,
+      "bbox": [
+        72.0,
+        320.0,
+        523.0,
+        400.0
+      ],
+      "section_title": "1 Introduction",
+      "text_preview": "Bibliometric analysis has become a cornerstone of research evaluation, enabling scholars to map the intellectual structu"
+    },
+    {
+      "block_idx": 6,
+      "type": "text",
+      "text_level": null,
+      "page_no": 1,
+      "md_line_start": 13,
+      "md_line_end": 13,
+      "bbox": [
+        72.0,
+        420.0,
+        523.0,
+        480.0
+      ],
+      "section_title": "1 Introduction",
+      "text_preview": "In this paper we develop a unified framework that combines citation topology with textual abstracts. Our contributions a"
+    },
+    {
+      "block_idx": 7,
+      "type": "title",
+      "text_level": 2,
+      "page_no": 1,
+      "md_line_start": 15,
+      "md_line_end": 15,
+      "bbox": [
+        72.0,
+        520.0,
+        220.0,
+        538.0
+      ],
+      "section_title": "2 Methods",
+      "text_preview": "2 Methods"
+    },
+    {
+      "block_idx": 8,
+      "type": "text",
+      "text_level": null,
+      "page_no": 2,
+      "md_line_start": 17,
+      "md_line_end": 17,
+      "bbox": [
+        72.0,
+        90.0,
+        523.0,
+        170.0
+      ],
+      "section_title": "2 Methods",
+      "text_preview": "We model each corpus as a directed graph in which nodes represent documents and edges represent citations. Node features"
+    },
+    {
+      "block_idx": 9,
+      "type": "text",
+      "text_level": null,
+      "page_no": 2,
+      "md_line_start": 19,
+      "md_line_end": 19,
+      "bbox": null,
+      "section_title": "2 Methods",
+      "text_preview": "The following table summarizes the three benchmark datasets used in our experiments and their key descriptive statistics"
+    },
+    {
+      "block_idx": 10,
+      "type": "table",
+      "text_level": null,
+      "page_no": 2,
+      "md_line_start": 21,
+      "md_line_end": 21,
+      "bbox": [
+        72.0,
+        200.0,
+        523.0,
+        300.0
+      ],
+      "section_title": "2 Methods",
+      "text_preview": "[表格]"
+    },
+    {
+      "block_idx": 11,
+      "type": "title",
+      "text_level": 2,
+      "page_no": 2,
+      "md_line_start": 23,
+      "md_line_end": 23,
+      "bbox": [
+        72.0,
+        318.0,
+        220.0,
+        336.0
+      ],
+      "section_title": "3 Results",
+      "text_preview": "3 Results"
+    },
+    {
+      "block_idx": 12,
+      "type": "text",
+      "text_level": null,
+      "page_no": 2,
+      "md_line_start": 25,
+      "md_line_end": 25,
+      "bbox": [
+        72.0,
+        340.0,
+        523.0,
+        420.0
+      ],
+      "section_title": "3 Results",
+      "text_preview": "Across all three datasets our method improves link-prediction accuracy by an average of 7.4 percentage points over the s"
+    },
+    {
+      "block_idx": 13,
+      "type": "title",
+      "text_level": 2,
+      "page_no": 2,
+      "md_line_start": 27,
+      "md_line_end": 27,
+      "bbox": [
+        72.0,
+        438.0,
+        220.0,
+        456.0
+      ],
+      "section_title": "4 Conclusion",
+      "text_preview": "4 Conclusion"
+    },
+    {
+      "block_idx": 14,
+      "type": "text",
+      "text_level": null,
+      "page_no": 2,
+      "md_line_start": 29,
+      "md_line_end": 29,
+      "bbox": [
+        72.0,
+        460.0,
+        523.0,
+        540.0
+      ],
+      "section_title": "4 Conclusion",
+      "text_preview": "We have presented a scalable embedding approach for bibliometric networks that jointly exploits citation structure and d"
+    }
+  ],
+  "tables": [
+    {
+      "table_idx": 0,
+      "block_idx": 10,
+      "page_no": 2,
+      "bbox": [
+        72.0,
+        200.0,
+        523.0,
+        300.0
+      ],
+      "n_rows": 3,
+      "n_cols": 4,
+      "grid": [
+        [
+          "Benchmark Dataset Summary",
+          "Documents",
+          "Coverage",
+          ""
+        ],
+        [
+          "BiblioNet",
+          "120000",
+          "2010",
+          "2018"
+        ],
+        [
+          "CiteSeerX",
+          "340000",
+          "2012",
+          "2022"
+        ]
+      ],
+      "caption": ""
+    }
+  ],
+  "has_bbox": true,
+  "markdown_sha256": "e59784e136466e3f1f626475d9d24812e817756fdca486e735561b9bdf5669fb",
+  "schema_version": 1,
+  "source_pdf_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "bbox_coord_space": "mineru_1000",
+  "page_width": null,
+  "page_height": null,
+  "rotation": null
+}

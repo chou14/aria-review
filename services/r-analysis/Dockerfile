@@ -8,10 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       pkg-config pandoc curl \
     && rm -rf /var/lib/apt/lists/*
 
-# httr2: OpenAlex/Crossref 数据接入 (主题词/参考文献建库, ingest_openalex.R)
-RUN R -q -e "install.packages(c('plumber','bibliometrix','jsonlite','httr2'), repos='https://cloud.r-project.org'); stopifnot(requireNamespace('plumber', quietly=TRUE), requireNamespace('bibliometrix', quietly=TRUE), requireNamespace('jsonlite', quietly=TRUE), requireNamespace('httr2', quietly=TRUE))"
-
 WORKDIR /app
+COPY renv.lock renv.lock
+
+# R 依赖版本由 renv.lock 锁定; renv 自身固定到生成 lockfile 的版本。
+RUN R -q -e "install.packages('remotes', repos='https://cloud.r-project.org'); remotes::install_version('renv', version='1.2.3', repos='https://cloud.r-project.org'); renv::restore(project='.', library=.libPaths()[1], prompt=FALSE); stopifnot(requireNamespace('plumber', quietly=TRUE), requireNamespace('bibliometrix', quietly=TRUE), requireNamespace('jsonlite', quietly=TRUE), requireNamespace('httr2', quietly=TRUE), requireNamespace('digest', quietly=TRUE), requireNamespace('Matrix', quietly=TRUE))"
+
 COPY R/ R/
 COPY plumber.R entrypoint.R ./
 

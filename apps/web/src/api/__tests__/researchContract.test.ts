@@ -8,6 +8,7 @@
  * 同时覆盖 client 的 AIP 风格自定义方法 URL（:discover / :verify）构造正确。
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { asRCorpusId } from "../corpusIds";
 import {
   ALL_GAPS,
   ALL_VERDICT_RESULTS,
@@ -21,6 +22,7 @@ import {
   discoverAccepted,
   verifyAccepted,
 } from "../research.fixtures";
+import { RUN_STATUS_DONE, RUN_STATUS_FAILED, RUN_STATUS_RUNNING } from "../runStatus";
 import type { EvidencePack, GapCandidate, ValueVerdict } from "../../types/research";
 
 // 从裁决结果注册表派生（含 G4），杜绝漏项（codex B1-P2）：
@@ -137,12 +139,12 @@ describe("研究契约 · 逐字保留 + 源坐标（铁律 3）", () => {
   });
 
   it("run_status 是合法停轮询信号；ticks 末态为终态、含 running（codex B1-P1）", () => {
-    const RUN_STATES = new Set(["running", "completed", "failed"]);
+    const RUN_STATES = new Set([RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED]);
     expect(RUN_STATES.has(scratchpadState.run_status)).toBe(true);
     for (const t of SCRATCHPAD_TICKS) expect(RUN_STATES.has(t.run_status)).toBe(true);
     // 轮询序列：最后一拍必须终态（停轮询），中间至少一拍 running（持续轮询）
-    expect(["completed", "failed"]).toContain(SCRATCHPAD_TICKS[SCRATCHPAD_TICKS.length - 1].run_status);
-    expect(SCRATCHPAD_TICKS.some((t) => t.run_status === "running")).toBe(true);
+    expect([RUN_STATUS_DONE, RUN_STATUS_FAILED]).toContain(SCRATCHPAD_TICKS[SCRATCHPAD_TICKS.length - 1].run_status);
+    expect(SCRATCHPAD_TICKS.some((t) => t.run_status === RUN_STATUS_RUNNING)).toBe(true);
   });
 
   it("GapVerdictResult 自洽：gap_id 三处一致（结果/裁决/证据）", () => {
@@ -167,7 +169,7 @@ describe("研究 client · AIP 自定义方法 URL 构造", () => {
   it("discoverGaps → POST .../corpus/{cid}/gaps:discover", async () => {
     const { discoverGaps } = await import("../client");
     const calls = stubFetch(discoverAccepted);
-    const res = await discoverGaps(5, "rc_mda_001");
+    const res = await discoverGaps(5, asRCorpusId("rc_mda_001"));
     expect(res.run_id).toBe(discoverAccepted.run_id);
     expect(calls[0].url).toMatch(/\/projects\/5\/corpus\/rc_mda_001\/gaps:discover$/);
     expect(calls[0].init?.method).toBe("POST");

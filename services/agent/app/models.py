@@ -344,6 +344,7 @@ class Corpus(Base):
     dbsource: Mapped[str | None] = mapped_column(String(20), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     r_corpus_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    error_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
 
     __table_args__ = (

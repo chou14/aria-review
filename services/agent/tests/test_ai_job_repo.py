@@ -60,3 +60,37 @@ async def test_ai_job_repo_filters_latest_by_kind_and_corpus(session):
     rows = await ai_job_repo.list_jobs(session, project_id=project.id, kind="review", corpus_id="c1")
     assert len(rows) == 1
     assert rows[0].kind == "review"
+
+
+@pytest.mark.asyncio
+async def test_ai_job_kind_enums_split(session):
+    """P3 收口回归：gap_verify 行可被 AiJobItem 序列化；通用创建入口拒绝 gap_discover。
+
+    gap_discover/gap_verify 由 research 专用端点创建；曾因共享单一 AiJobKind 枚举，
+    存在 gap_verify 行时 jobs 列表整个 500。
+    """
+    import pydantic
+    from app.schemas import AiJobCreateRequest, AiJobItem
+
+    project = Project(name="ai-job-kind-split")
+    session.add(project)
+    await session.commit()
+    await session.refresh(project)
+
+    # 持久化 gap_verify 行（模拟 research verify 端点行为）→ 响应模型可序列化
+    job = await ai_job_repo.create_job(
+        session,
+        project_id=project.id,
+        kind="gap_verify",
+        corpus_id=None,
+        request_json={"gapId": "g1"},
+    )
+    item = AiJobItem(
+        id=job.id, projectId=project.id, kind=job.kind, status=job.status,
+    )
+    assert item.kind == "gap_verify"
+
+    # 通用创建入口拒绝 research 专用 kind
+    for bad_kind in ("gap_discover", "gap_verify", "banana"):
+        with pytest.raises(pydantic.ValidationError):
+            AiJobCreateRequest(kind=bad_kind)

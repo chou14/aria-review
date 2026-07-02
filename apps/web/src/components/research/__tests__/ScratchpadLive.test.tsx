@@ -83,8 +83,8 @@ describe("ScratchpadLiveConnected · 轮询", () => {
     );
   }
 
-  it("轮询累积更新，run_status=completed 后停轮询（codex B1-P1）", async () => {
-    // 每次返回序列下一拍；越界后恒返回末拍(completed)
+  it("轮询累积更新，run_status=done 后停轮询（codex B1-P1）", async () => {
+    // 每次返回序列下一拍；越界后恒返回末拍(done)
     let i = 0;
     mockGetScratchpad.mockImplementation(async () => SCRATCHPAD_TICKS[Math.min(i++, SCRATCHPAD_TICKS.length - 1)]);
 

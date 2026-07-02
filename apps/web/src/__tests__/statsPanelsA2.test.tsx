@@ -8,6 +8,9 @@
  */
 import { render, screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("c1");
 
 // ---- mock echarts 实例（捕获 setOption 的 option 供断言出图）----
 const { setOptionSpy, initSpy } = vi.hoisted(() => {
@@ -108,7 +111,7 @@ describe("OverviewPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     // KPI
     expect(screen.getByText("文献数")).toBeInTheDocument();
     expect(screen.getByText("50")).toBeInTheDocument();
@@ -128,7 +131,7 @@ describe("OverviewPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("暂无年度产出数据")).toBeInTheDocument();
     // 空态时不渲染导出
     expect(screen.queryByRole("button", { name: /导出/ })).not.toBeInTheDocument();
@@ -136,7 +139,7 @@ describe("OverviewPanel", () => {
 
   it("加载态 → ChartCard 显示加载中", () => {
     overviewSpy.mockReturnValue({ data: undefined, isLoading: true, isError: false });
-    render(<OverviewPanel projectId="1" corpusId="c1" />);
+    render(<OverviewPanel projectId="1" corpusId={CID} />);
     // A5: 三字段卡同处 loading 桩 → 页面可能有多张加载卡，断言至少一张即可。
     expect(screen.getAllByText("加载中…").length).toBeGreaterThan(0);
   });
@@ -156,7 +159,7 @@ describe("SourcesPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<SourcesPanel projectId="1" corpusId="c1" />);
+    render(<SourcesPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("最相关来源")).toBeInTheDocument();
     expect(screen.getByText("来源 H 指数")).toBeInTheDocument();
     expect(screen.getByText("Bradford 分区")).toBeInTheDocument();
@@ -170,7 +173,7 @@ describe("SourcesPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<SourcesPanel projectId="1" corpusId="c1" />);
+    render(<SourcesPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByText("当前语料无期刊/来源字段数据")).toHaveLength(3);
   });
 
@@ -181,7 +184,7 @@ describe("SourcesPanel", () => {
       isError: true,
       error: new Error("加载失败"),
     });
-    render(<SourcesPanel projectId="1" corpusId="c1" />);
+    render(<SourcesPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("alert")[0]).toHaveTextContent("加载失败");
   });
 });
@@ -207,7 +210,7 @@ describe("AuthorsPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     // topAuthors 出表
     expect(screen.getByText("张三")).toBeInTheDocument();
     // hIndex 空态
@@ -231,7 +234,7 @@ describe("AuthorsPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("暂无 Lotka 分布数据")).toBeInTheDocument();
   });
 
@@ -245,7 +248,7 @@ describe("AuthorsPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("暂无 Lotka 分布数据")).toBeInTheDocument();
   });
 
@@ -259,7 +262,7 @@ describe("AuthorsPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("暂无 Lotka 分布数据")).toBeInTheDocument();
   });
 
@@ -273,7 +276,7 @@ describe("AuthorsPanel", () => {
       isLoading: false,
       isError: false,
     });
-    render(<AuthorsPanel projectId="1" corpusId="c1" />);
+    render(<AuthorsPanel projectId="1" corpusId={CID} />);
     const opt = lastOption();
     const series = opt.series as Series[];
     expect(series.map((s) => s.type)).toEqual(["scatter"]); // 仅散点

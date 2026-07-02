@@ -10,6 +10,7 @@
 import { useMemo, useRef } from "react";
 import type { EChartsOption } from "echarts";
 import { useConceptual, useEvolution, useThematic } from "../api/hooks";
+import type { RCorpusId } from "../api/corpusIds";
 import { ChartCard, EChart, ExportMenu, NetworkCard, envelopeChartProps } from "./viz";
 import type { EChartHandle, Envelope } from "./viz";
 import {
@@ -18,7 +19,7 @@ import {
 } from "./viz/advancedCharts";
 import type { EvolutionData, ThematicData } from "./viz/advancedCharts";
 
-export function ConceptualPanel({ projectId, corpusId }: { projectId: string; corpusId: string }) {
+export function ConceptualPanel({ projectId, corpusId }: { projectId: string; corpusId: RCorpusId }) {
   const { data, isLoading, isError, error } = useConceptual(projectId, corpusId);
   const graph = data?.graph ?? { nodes: [], edges: [] };
 

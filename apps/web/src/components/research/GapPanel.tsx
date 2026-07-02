@@ -14,6 +14,7 @@
  * 不含任何商科词；领域内容只来自数据。
  */
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type { GapCandidate, GapLens, GapStatus } from "../../types/research";
 import type { ValueVerdictKind } from "../../types/research";
 import { ErrMsg, Loading } from "../../lib/ui";
@@ -101,13 +102,13 @@ function GapCard({ gap, projectId, selected, onSelect }: GapCardProps) {
                 <li className="gap-evi-row" key={`${sp.paper_id}-${sp.anchor_id}`}>
                   <blockquote className="gap-quote">{sp.quote}</blockquote>
                   <div className="gap-evi-src">
-                    <a
+                    <Link
                       className="gap-paper-link"
-                      href={`/projects/${projectId}/library/${sp.paper_id}`}
+                      to={`/projects/${projectId}/library/${sp.paper_id}`}
                       title="打开文献详情"
                     >
                       Paper #{sp.paper_id}
-                    </a>
+                    </Link>
                     <span className="gap-anchor-chip" data-anchor-id={sp.anchor_id} title="源坐标锚点">
                       {sp.anchor_id}
                     </span>
@@ -127,13 +128,13 @@ function GapCard({ gap, projectId, selected, onSelect }: GapCardProps) {
                   <li className="gap-evi-row" key={`${ce.paper_id}-${ce.anchor_id}`}>
                     <p className="gap-counter-note">{ce.note}</p>
                     <div className="gap-evi-src">
-                      <a
+                      <Link
                         className="gap-paper-link"
-                        href={`/projects/${projectId}/library/${ce.paper_id}`}
+                        to={`/projects/${projectId}/library/${ce.paper_id}`}
                         title="打开文献详情"
                       >
                         Paper #{ce.paper_id}
-                      </a>
+                      </Link>
                       <span className="gap-anchor-chip" data-anchor-id={ce.anchor_id} title="源坐标锚点">
                         {ce.anchor_id}
                       </span>

@@ -10,7 +10,8 @@ import { SourceViewer } from "../components/source/SourceViewer";
 import { ReviewWithProvenance } from "../components/review/ReviewWithProvenance";
 import { QualityPanel } from "../components/quality/QualityPanel";
 import { ResearchView } from "../pages/ResearchView";
-import { FIXTURE_PID, FIXTURE_CID } from "../api/research.fixtures";
+import sampleReviewWithProvenance from "../../../../packages/contracts/fixtures/sample_review_with_provenance.json" with { type: "json" };
+import researchFixtures from "../../../../packages/contracts/fixtures/research_gap.json" with { type: "json" };
 import type { ProvenanceMap } from "../types/provenance";
 
 function num(v: string | null, dflt: number): number {
@@ -18,22 +19,9 @@ function num(v: string | null, dflt: number): number {
   return Number.isFinite(n) ? n : dflt;
 }
 
-/** 内联样例（形状严格按契约；anchor 指向 mock 结构里存在的 block_idx 1/2） */
-const DEV_REVIEW_MD =
-  "## 隐私保护研究综述\n\n研究普遍表明，[[anchor:ax1]]隐私保护技术在近年显著提升[[/anchor]]；" +
-  "在量化层面，[[anchor:ax2]]零伪造率达到 100%[[/anchor]]，体现证据可信。\n";
-const DEV_REVIEW_MAP: ProvenanceMap = {
-  ax1: {
-    paper_id: 1, attachment_id: 10, page_no: 1, block_idx: 1,
-    bbox: [120, 200, 880, 268], table_idx: null, cell_row: null, cell_col: null,
-    section_title: "引言", quote: "隐私保护技术在近年显著提升",
-  },
-  ax2: {
-    paper_id: 1, attachment_id: 10, page_no: 2, block_idx: 2,
-    bbox: [100, 300, 900, 520], table_idx: 0, cell_row: 1, cell_col: 1,
-    section_title: "结果", quote: "零伪造率达到 100%",
-  },
-};
+const { FIXTURE_PID, FIXTURE_CID } = researchFixtures as { FIXTURE_PID: number; FIXTURE_CID: string };
+const DEV_REVIEW = sampleReviewWithProvenance as unknown as { review_md: string; provenance_map: ProvenanceMap };
+
 // 降级样例：正文含 anchor 标记但无 provenance_map → 应剥离标记为纯文本（无可点锚点）
 const DEV_REVIEW_DEGRADE_MD =
   "## 综述\n\n这段含 [[anchor:axX]]溯源标记[[/anchor]] 但无映射，应剥离为纯文本，不报错也不可点。\n";
@@ -72,8 +60,8 @@ function DevReviewProvenance() {
     (typeof window !== "undefined"
       ? (window as Window & { __DEV_REVIEW__?: { review_md: string; provenance_map: ProvenanceMap } }).__DEV_REVIEW__
       : undefined) || fetched || undefined;
-  const reviewMd = degrade ? DEV_REVIEW_DEGRADE_MD : injected?.review_md ?? DEV_REVIEW_MD;
-  const map = degrade ? undefined : injected?.provenance_map ?? DEV_REVIEW_MAP;
+  const reviewMd = degrade ? DEV_REVIEW_DEGRADE_MD : injected?.review_md ?? DEV_REVIEW.review_md;
+  const map = degrade ? undefined : injected?.provenance_map ?? DEV_REVIEW.provenance_map;
   return (
     <div className="container" style={{ paddingTop: "1rem", minHeight: "70vh" }}>
       <ReviewWithProvenance projectId={projectId} reviewMd={reviewMd} provenanceMap={map} />

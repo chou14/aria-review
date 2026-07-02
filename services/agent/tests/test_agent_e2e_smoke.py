@@ -1,17 +1,17 @@
-"""P3-3 Step 2+4 — 完整综述 e2e 离线冒烟（多格式 + 产出可验证 RunLog）。
+"""P3-3 Step 2+4 — 完整综述 e2e 离线冒烟（PDF/ZIP 导入口径 + 可验证 RunLog）。
 
 证明「用户一句话 → agent run 自主调 review 工具 → 产出可信综述 + 可验证 RunLog」整条
 链路跑通，全程离线（FakeLLM + 缓存 markdown，无 MinerU/真实 LLM）：
 
-  1. 建 project + ≥2 篇 included 论文，含 ≥1 篇非 PDF 样例（.docx / .html）以体现
-     「多格式经同一管线」（§0.6）——不真跑 MinerU，造好盘上 markdown + Attachment 元
-     数据（sha256 + markdown_path）即可，重点是 e2e 链路 + RunLog 可验证性。
+  1. 建 project + ≥2 篇 included 论文，使用当前导入入口实际支持的 PDF 语料；ZIP 是
+     PDF 批量容器。这里不真跑 MinerU，造好盘上 markdown + Attachment 元数据
+     （sha256 + markdown_path）即可，重点是 e2e 链路 + RunLog 可验证性。
   2. 用 RunController 驱动一个 agent run：stub LLM 第 1 轮调 `review__generate`、
      第 2 轮纯文本 final answer（无 tool_calls）→ run 到 done（auto_confirm=True）。
   3. 断言：run done；build_runlog 非空（event_count>0、evidence_refs 每条带
      source_content_sha256、validation_summary 有 fabricated_count）；verify_runlog
      （给各篇 content_sha256 + 足够大 max_fabricated）ok=True（哈希链/seq/manifest/
-     溯源/伪造门限全过）；runlog 能体现 ≥1 docx/html 样例。
+     溯源/伪造门限全过）。
 
 模式沿用 tests/test_run_resume.py（patch app.harness.engine.call_llm_with_fallback +
 RunController.create/start + 轮询终态 + 真实 ReviewTool）。conftest 强制 review 链离线。
@@ -147,8 +147,7 @@ async def _seed_paper_with_markdown(
 ) -> tuple[int, str]:
     """造一篇 included 候选论文：Paper + 盘上 markdown + Attachment（sha256+markdown_path）。
 
-    content_type/src_filename 体现「源文件格式」（.pdf / .docx / .html），用以证明多格式
-    经同一管线产出可读 markdown。返回 (paper_id, content_sha256)。
+    content_type/src_filename 使用当前导入入口支持的 PDF 口径。返回 (paper_id, content_sha256)。
     """
     markdown = _markdown_for(title, markdown_body)
     # content_sha256 = 该论文「全文文档内容」哈希；与盘上 markdown 文件名 stem 一致
@@ -168,7 +167,7 @@ async def _seed_paper_with_markdown(
         paper_id = paper.id
         att = Attachment(
             paper_id=paper_id,
-            path=str(tmp_dir / src_filename),  # 源文件名体现格式（.docx/.html/.pdf）
+            path=str(tmp_dir / src_filename),
             content_type=content_type,
             sha256=content_sha256,
             mineru_status="done",
@@ -185,27 +184,22 @@ async def _seed_paper_with_markdown(
 
 @pytest.mark.asyncio
 async def test_agent_e2e_review_produces_verifiable_runlog(session_factory, tmp_path):
-    """一句话 → agent 调 review 工具 → run done → 产出可验证 RunLog（多格式样例）。"""
-    # ---- 1. 建 project + 3 篇 included 论文（含 1 篇 .docx + 1 篇 .html 多格式样例） ----
+    """一句话 → agent 调 review 工具 → run done → 产出可验证 RunLog（PDF 语料）。"""
+    # ---- 1. 建 project + 3 篇 included PDF 论文 ----
     async with session_factory() as s:
         project = await create_project(s, {
             "name": f"E2E-Review-{_uuid.uuid4().hex[:8]}",
-            "research_question": "多格式文献综述 e2e 可信链路",
+            "research_question": "PDF 文献综述 e2e 可信链路",
         })
         project_id = project.id
 
     seeds = [
-        # (title, content_type, src_filename) —— 覆盖 pdf / docx / html 三种源格式
         ("分析师盈余预测的影响因素研究", "application/pdf", "Zhang_2023_forecast.pdf"),
-        ("机构投资者与分析师跟踪", (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ), "Li_2022_institutional.docx"),
-        ("中国资本市场信息环境综述", "text/html", "Wang_2021_infoenv.html"),
+        ("机构投资者与分析师跟踪", "application/pdf", "Li_2022_institutional.pdf"),
+        ("中国资本市场信息环境综述", "application/pdf", "Wang_2021_infoenv.pdf"),
     ]
     paper_ids: list[int] = []
     content_hashes: set[str] = set()
-    # 按源格式分别记录各篇 sha，用于「非 PDF 样例确实进入综述语料」的真断言（P2-d）。
-    sha_by_ext: dict[str, str] = {}
     for idx, (title, ctype, fname) in enumerate(seeds):
         pid, sha = await _seed_paper_with_markdown(
             session_factory,
@@ -217,7 +211,6 @@ async def test_agent_e2e_review_produces_verifiable_runlog(session_factory, tmp_
         )
         paper_ids.append(pid)
         content_hashes.add(sha)
-        sha_by_ext[Path(fname).suffix.lower()] = sha
         async with session_factory() as s:
             pp = await add_paper_to_project(
                 s, project_id=project_id, paper_id=pid, added_by="user", order=idx,
@@ -308,10 +301,7 @@ async def test_agent_e2e_review_produces_verifiable_runlog(session_factory, tmp_
     assert report.checks["evidence_traceable"], report.errors
     assert report.checks["zero_fabrication"], report.errors
 
-    # ---- 5. 非 PDF 样例（docx/html）确实经同一管线进入综述语料（P2-d 真断言） ----
-    # 不靠「evidence 命中 docx/html」（fake 综述只引前几篇，docx/html 未必被引用，那样脆弱），
-    # 而直接断言：喂给综述的 records 的 content_sha256 集合含 docx 与 html 样例的 sha——
-    # 证明非 PDF 论文经 load_project_corpus 同一管线进入了综述输入（非笼统 ⊆ 混合集合）。
+    # ---- 5. PDF 语料确实进入综述输入 ----
     from app.review.load import load_project_corpus
 
     async with session_factory() as s:
@@ -324,14 +314,10 @@ async def test_agent_e2e_review_produces_verifiable_runlog(session_factory, tmp_
     assert corpus_record_shas == content_hashes, (
         "喂给综述的 records 的 content_sha256 集合应等于三篇样例的全集"
     )
-    # 关键：非 PDF 样例（docx/html）的 sha 确在综述语料里——能捕获「docx/html 未进语料」的退化。
-    assert sha_by_ext[".docx"] in corpus_record_shas, "docx 样例须经同管线进入综述语料"
-    assert sha_by_ext[".html"] in corpus_record_shas, "html 样例须经同管线进入综述语料"
-
     # 兼容性：证据溯源哈希仍须全部落在语料集合内（证据不可凭空，溯源闭环）。
     evidence_shas = {
         r.get("source_content_sha256") for r in evidence_refs
         if r.get("source_content_sha256")
     }
-    assert evidence_shas <= content_hashes, "证据溯源哈希应全部落在多格式语料集合内"
+    assert evidence_shas <= content_hashes, "证据溯源哈希应全部落在 PDF 语料集合内"
     assert evidence_shas, "应至少有一条可溯源证据"

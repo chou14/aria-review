@@ -18,6 +18,7 @@ import {
   getThematic,
   getThreeField,
 } from "./client";
+import type { RCorpusId } from "./corpusIds";
 
 export function useHealth() {
   return useQuery({ queryKey: ["health"], queryFn: getHealth, refetchInterval: 15000 });
@@ -33,7 +34,7 @@ export function useCorpusStatus(projectId: string, corpusId: string) {
 }
 
 // overview 仅在 corpus ready 后才取 (避免 409 CORPUS_NOT_READY, Codex step4-P1)
-export function useOverview(projectId: string, corpusId: string, enabled: boolean) {
+export function useOverview(projectId: string, corpusId: RCorpusId, enabled: boolean) {
   return useQuery({
     queryKey: ["overview", projectId, corpusId],
     queryFn: () => getOverview(projectId, corpusId),
@@ -41,75 +42,75 @@ export function useOverview(projectId: string, corpusId: string, enabled: boolea
   });
 }
 
-export function useSources(projectId: string, corpusId: string) {
+export function useSources(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["sources", projectId, corpusId], queryFn: () => getSources(projectId, corpusId) });
 }
 
-export function useAuthors(projectId: string, corpusId: string) {
+export function useAuthors(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["authors", projectId, corpusId], queryFn: () => getAuthors(projectId, corpusId) });
 }
 
-export function useDocuments(projectId: string, corpusId: string) {
+export function useDocuments(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["documents", projectId, corpusId], queryFn: () => getDocuments(projectId, corpusId) });
 }
 
 // --- A4 高级图 hooks (消费可用性信封) ---
-export function useAuthorProduction(projectId: string, corpusId: string) {
+export function useAuthorProduction(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["authorProduction", projectId, corpusId],
     queryFn: () => getAuthorProduction(projectId, corpusId),
   });
 }
 
-export function useKeywordTrend(projectId: string, corpusId: string) {
+export function useKeywordTrend(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["keywordTrend", projectId, corpusId],
     queryFn: () => getKeywordTrend(projectId, corpusId),
   });
 }
 
-export function useCitedRefs(projectId: string, corpusId: string) {
+export function useCitedRefs(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["citedRefs", projectId, corpusId],
     queryFn: () => getCitedRefs(projectId, corpusId),
   });
 }
 
-export function useConceptual(projectId: string, corpusId: string) {
+export function useConceptual(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["conceptual", projectId, corpusId], queryFn: () => getConceptual(projectId, corpusId) });
 }
 
-export function useIntellectual(projectId: string, corpusId: string) {
+export function useIntellectual(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["intellectual", projectId, corpusId], queryFn: () => getIntellectual(projectId, corpusId) });
 }
 
-export function useSocial(projectId: string, corpusId: string) {
+export function useSocial(projectId: string, corpusId: RCorpusId) {
   return useQuery({ queryKey: ["social", projectId, corpusId], queryFn: () => getSocial(projectId, corpusId) });
 }
 
 // --- A5 高级图② hooks (消费可用性信封) ---
-export function useThematic(projectId: string, corpusId: string) {
+export function useThematic(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["thematic", projectId, corpusId],
     queryFn: () => getThematic(projectId, corpusId),
   });
 }
 
-export function useEvolution(projectId: string, corpusId: string) {
+export function useEvolution(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["evolution", projectId, corpusId],
     queryFn: () => getEvolution(projectId, corpusId),
   });
 }
 
-export function useHistcite(projectId: string, corpusId: string) {
+export function useHistcite(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["histcite", projectId, corpusId],
     queryFn: () => getHistcite(projectId, corpusId),
   });
 }
 
-export function useThreefield(projectId: string, corpusId: string) {
+export function useThreefield(projectId: string, corpusId: RCorpusId) {
   return useQuery({
     queryKey: ["threefield", projectId, corpusId],
     queryFn: () => getThreeField(projectId, corpusId),

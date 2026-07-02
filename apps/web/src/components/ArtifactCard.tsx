@@ -36,21 +36,43 @@ interface Props {
   onExpand: (artifact: ArtifactItem) => void;
   /** 点击「重跑」回调（可选，传入时才显示按钮） */
   onRerun?: (artifact: ArtifactItem) => void;
+  /** 点击「重试持久化」回调（负 id 本地回退工件专用） */
+  onRetryPersist?: (artifact: ArtifactItem) => Promise<void> | void;
 }
 
-export function ArtifactCard({ artifact, projectId, onExpand, onRerun }: Props) {
+export function ArtifactCard({ artifact, projectId, onExpand, onRerun, onRetryPersist }: Props) {
   const [pinning, setPinning] = useState(false);
+  const [retryingPersist, setRetryingPersist] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [persistError, setPersistError] = useState<string | null>(null);
   const patchArtifact = usePatchArtifact(projectId);
+  const isLocalFallback = artifact.id < 0;
 
   const handlePin = useCallback(async () => {
-    if (pinning) return;
+    if (pinning || isLocalFallback) return;
+    setPinError(null);
     setPinning(true);
     try {
       await patchArtifact.mutateAsync({ aid: artifact.id, pinned: !artifact.pinned });
+    } catch {
+      setPinError("Pin 操作失败，请稍后重试。");
     } finally {
       setPinning(false);
     }
-  }, [artifact.id, artifact.pinned, pinning, patchArtifact]);
+  }, [artifact.id, artifact.pinned, isLocalFallback, pinning, patchArtifact]);
+
+  const handleRetryPersist = useCallback(async () => {
+    if (!onRetryPersist || retryingPersist) return;
+    setPersistError(null);
+    setRetryingPersist(true);
+    try {
+      await onRetryPersist(artifact);
+    } catch {
+      setPersistError("持久化失败，请稍后重试。");
+    } finally {
+      setRetryingPersist(false);
+    }
+  }, [artifact, onRetryPersist, retryingPersist]);
 
   const typeLabel = TYPE_LABELS[artifact.type] ?? artifact.type;
   const badgeClass = TYPE_BADGE_CLASS[artifact.type] ?? "badge";
@@ -65,6 +87,11 @@ export function ArtifactCard({ artifact, projectId, onExpand, onRerun }: Props) 
         <span className="artifact-title" title={artifact.title}>
           {artifact.title || "(无标题)"}
         </span>
+        {isLocalFallback && (
+          <span className="badge" title="该工件尚未保存到后端">
+            未持久化
+          </span>
+        )}
       </div>
 
       {/* 操作行 */}
@@ -78,16 +105,26 @@ export function ArtifactCard({ artifact, projectId, onExpand, onRerun }: Props) 
           展开
         </button>
 
-        {/* Pin / Unpin */}
-        <button
-          className={`btn btn-ghost ${artifact.pinned ? "artifact-pinned" : ""}`}
-          disabled={pinning}
-          onClick={() => void handlePin()}
-          title={artifact.pinned ? "取消 pin" : "Pin 工件（跨会话保留）"}
-          aria-pressed={artifact.pinned}
-        >
-          {artifact.pinned ? "已 Pin" : "Pin"}
-        </button>
+        {isLocalFallback ? (
+          <button
+            className="btn btn-ghost"
+            disabled={retryingPersist || !onRetryPersist}
+            onClick={() => void handleRetryPersist()}
+            title="重新保存工件，成功后即可 Pin"
+          >
+            {retryingPersist ? "持久化中" : "重试持久化"}
+          </button>
+        ) : (
+          <button
+            className={`btn btn-ghost ${artifact.pinned ? "artifact-pinned" : ""}`}
+            disabled={pinning}
+            onClick={() => void handlePin()}
+            title={artifact.pinned ? "取消 pin" : "Pin 工件（跨会话保留）"}
+            aria-pressed={artifact.pinned}
+          >
+            {artifact.pinned ? "已 Pin" : "Pin"}
+          </button>
+        )}
 
         {/* 重跑（可选） */}
         {onRerun && (
@@ -105,6 +142,11 @@ export function ArtifactCard({ artifact, projectId, onExpand, onRerun }: Props) 
       {artifact.userAnnotation && (
         <div className="artifact-annotation muted" style={{ fontSize: "0.82rem", marginTop: "0.4rem" }}>
           {artifact.userAnnotation}
+        </div>
+      )}
+      {(pinError || persistError) && (
+        <div role="alert" style={{ color: "var(--danger)", fontSize: "0.82rem", marginTop: "0.4rem" }}>
+          {pinError ?? persistError}
         </div>
       )}
     </div>

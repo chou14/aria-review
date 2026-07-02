@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from app.errors import ApiError
+from app.models import Attachment
 from app.repositories.library import add_paper
 from app.repositories.project import add_paper_to_project, create_project
 from app.services import project_svc
@@ -52,7 +53,7 @@ async def test_get_project_dto_not_found(session):
 
 @pytest.mark.asyncio
 async def test_get_project_dto_with_counts(session):
-    """get_project_dto 正确返回 paperCount/includedCount。"""
+    """get_project_dto 正确返回 paperCount/includedCount/readableFulltextCount。"""
     proj = await create_project(session, {"name": "CountTest"})
     p1 = await add_paper(session, {"title": "Pa", "doi": "10.1/pa"})
     p2 = await add_paper(session, {"title": "Pb", "doi": "10.1/pb"})
@@ -68,6 +69,55 @@ async def test_get_project_dto_with_counts(session):
     assert dto["id"] == proj.id
     assert dto["paperCount"] == 2
     assert dto["includedCount"] == 1
+    assert dto["readableFulltextCount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_get_project_dto_readable_fulltext_count(session, tmp_path):
+    """readableFulltextCount 只统计 included 且 markdown 可读非空、有 sha256 的论文。"""
+    proj = await create_project(session, {"name": "ReadableCount"})
+    p1 = await add_paper(session, {"title": "Readable", "doi": "10.1/readable"})
+    p2 = await add_paper(session, {"title": "Candidate", "doi": "10.1/candidate"})
+    p3 = await add_paper(session, {"title": "Empty", "doi": "10.1/empty"})
+    pp1 = await add_paper_to_project(session, proj.id, p1.id)
+    pp2 = await add_paper_to_project(session, proj.id, p2.id)
+    pp3 = await add_paper_to_project(session, proj.id, p3.id)
+
+    from app.repositories.project import set_inclusion
+    await set_inclusion(session, pp1.id, "included")
+    await set_inclusion(session, pp2.id, "candidate")
+    await set_inclusion(session, pp3.id, "included")
+
+    readable_md = tmp_path / "readable.md"
+    readable_md.write_text("# 正文\n\n可读全文", encoding="utf-8")
+    empty_md = tmp_path / "empty.md"
+    empty_md.write_text("   \n", encoding="utf-8")
+    session.add_all([
+        Attachment(
+            paper_id=p1.id,
+            sha256="a" * 64,
+            mineru_status="done",
+            markdown_path=str(readable_md),
+        ),
+        Attachment(
+            paper_id=p2.id,
+            sha256="b" * 64,
+            mineru_status="done",
+            markdown_path=str(readable_md),
+        ),
+        Attachment(
+            paper_id=p3.id,
+            sha256="c" * 64,
+            mineru_status="done",
+            markdown_path=str(empty_md),
+        ),
+    ])
+    await session.flush()
+
+    dto = await project_svc.get_project_dto(session, proj.id)
+    assert dto is not None
+    assert dto["includedCount"] == 2
+    assert dto["readableFulltextCount"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,22 @@
+name: OpenAPI Drift
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check-openapi-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install agent dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/agent/requirements.txt pyyaml
+      - name: Check OpenAPI drift
+        working-directory: services/agent
+        run: python scripts/check_openapi_drift.py

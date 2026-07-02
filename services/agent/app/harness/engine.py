@@ -784,6 +784,8 @@ class LoopState:
         对旧快照容错：缺 evidence_refs / validation_summary / provenance_map 键时
         分别默认 [] / None / None。
         """
+        from ..run_status import normalize_run_status
+
         return cls(
             messages=d.get("messages", []),
             round_idx=d.get("round_idx", 0),
@@ -792,7 +794,7 @@ class LoopState:
             all_tool_results=d.get("all_tool_results", []),
             rounds_log=d.get("rounds_log", []),
             model_used=d.get("model_used", ""),
-            status=d.get("status", "running"),
+            status=normalize_run_status(d.get("status", "running")),
             pending_round=d.get("pending_round"),
             final_output=d.get("final_output"),
             evidence_refs=d.get("evidence_refs") or [],

@@ -1,0 +1,39 @@
+{
+  "review_md": "## Evidence-backed review\n\nThe method improves link prediction [[anchor:a10_12_0__occ0]][1][[/anchor]], and the text channel helps most on sparse graphs [[anchor:a10_12_1__occ1]][1][[/anchor]].",
+  "provenance_map": {
+    "a10_12_0__occ0": {
+      "paper_id": 10,
+      "attachment_id": 50,
+      "page_no": 2,
+      "block_idx": 12,
+      "bbox": [
+        72.0,
+        340.0,
+        523.0,
+        420.0
+      ],
+      "table_idx": null,
+      "cell_row": null,
+      "cell_col": null,
+      "section_title": "3 Results",
+      "quote": "Across all three datasets our method improves link-prediction accuracy by an average of 7.4 percentage points over the strongest baseline."
+    },
+    "a10_12_1__occ1": {
+      "paper_id": 10,
+      "attachment_id": 50,
+      "page_no": 2,
+      "block_idx": 12,
+      "bbox": [
+        72.0,
+        340.0,
+        523.0,
+        420.0
+      ],
+      "table_idx": null,
+      "cell_row": null,
+      "cell_col": null,
+      "section_title": "3 Results",
+      "quote": "The gains are most pronounced on the sparsest graph, where structural signals alone are insufficient and the textual channel contributes substantially."
+    }
+  }
+}

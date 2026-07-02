@@ -1,8 +1,13 @@
 {
   "name": "bibliocn-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20 <26",
+    "pnpm": "9.15.9"
+  },
   "scripts": {
     "dev": "vite",
     "gen:api": "openapi-typescript ../../packages/contracts/openapi.yaml -o src/api/schema.d.ts",

@@ -1,0 +1,21 @@
+{
+  "imported": 1,
+  "skipped": 1,
+  "failed": [
+    {
+      "candidateId": "integrity-1",
+      "title": "Integrity Fail Paper",
+      "reason": "数据库冲突: UNIQUE constraint failed: paper.doi"
+    },
+    {
+      "candidateId": null,
+      "title": "Untitled broken candidate",
+      "reason": "候选缺少可入库的外部标识，已隔离失败"
+    }
+  ],
+  "failedCount": 2,
+  "paperIds": [
+    101,
+    102
+  ]
+}

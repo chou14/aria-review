@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { createAiJob, getAiJob, listAiJobs, type AiJob, type CiteSummary, type LlmRequestOptions } from "../api/client";
-import type { ProvenanceMap } from "../types/provenance";
+import type { LlmRequestOptions } from "../api/client";
+import type { ProjectDetail } from "../api/agentHooks";
+import type { RCorpusId } from "../api/corpusIds";
+import { REVIEW_TYPES, useReviewJob } from "../hooks/useReviewJob";
 import { ReviewWithProvenance } from "./review/ReviewWithProvenance";
 import { downloadMarkdown } from "../lib/download";
 import {
@@ -14,127 +15,39 @@ import {
   AiKeyNotice,
 } from "./ai";
 
-const TYPES: [string, string][] = [
-  ["undergrad", "本科综述"],
-  ["master", "硕士综述"],
-  ["phd", "博士综述"],
-  ["grant", "基金本子"],
-  ["proposal", "开题报告"],
-  ["sci_intro", "SCI Intro"],
-];
-
 export function ReviewPanel({
   projectId,
   corpusId,
   // M5: 可选 LLM 配置 prop，由父组件从 useLlmSettings 读取后注入（不改内部逻辑）
   llm,
   apiKey,
+  projectStats,
 }: {
   projectId: string;
-  corpusId?: string;
+  corpusId?: RCorpusId;
   llm?: LlmRequestOptions;
   apiKey?: string;
+  projectStats?: Pick<ProjectDetail, "includedCount" | "readableFulltextCount">;
 }) {
-  const [type, setType] = useState("undergrad");
-  const [topic, setTopic] = useState("");
-  const [running, setRunning] = useState(false);
-  const [text, setText] = useState("");
-  const [summary, setSummary] = useState<CiteSummary | null>(null);
-  const [annotated, setAnnotated] = useState<string | null>(null);
-  const [provenanceMap, setProvenanceMap] = useState<ProvenanceMap | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<number | null>(null);
-  const storageKey = corpusId
-    ? `bibliocn.ai.review.${projectId}.${corpusId}`
-    : `bibliocn.ai.review.${projectId}`;
+  const {
+    type,
+    setType,
+    topic,
+    setTopic,
+    running,
+    text,
+    summary,
+    annotated,
+    provenanceMap,
+    err,
+    precheck,
+    exportText,
+    generate,
+  } = useReviewJob({ projectId, corpusId, llm, apiKey, projectStats });
 
-  function hydrate(job: AiJob) {
-    setJobId(job.id);
-    setRunning(job.status === "queued" || job.status === "running");
-    setText(job.resultText || "");
-    setAnnotated(job.annotatedText || null);
-    setProvenanceMap(job.provenanceMap ?? null);
-    setSummary((job.summary as CiteSummary | null) || null);
-    setErr(job.status === "failed" ? (job.error || "生成失败") : null);
-    const req = job.request || {};
-    if (typeof req.type === "string") setType(req.type);
-    if (typeof req.topic === "string") setTopic(req.topic);
-    localStorage.setItem(storageKey, String(job.id));
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    async function restore() {
-      try {
-        const saved = Number(localStorage.getItem(storageKey) || 0);
-        if (saved) {
-          try {
-            const job = await getAiJob(projectId, saved);
-            if (!cancelled) hydrate(job);
-            return;
-          } catch {
-            // 旧 jobId 失效(DB 重置/项目重建 → 404)：清掉坏缓存并【回退 listAiJobs】，
-            // 绝不因 localStorage 残留就让已生成的综述留白(关键回归根因)。
-            localStorage.removeItem(storageKey);
-          }
-        }
-        const res = await listAiJobs(projectId, { kind: "review", corpusId: corpusId || undefined, limit: 1 });
-        if (!cancelled && res.jobs[0]) hydrate(res.jobs[0]);
-      } catch {
-        localStorage.removeItem(storageKey);
-      }
-    }
-    restore();
-    return () => { cancelled = true; };
-  }, [projectId, corpusId]);
-
-  useEffect(() => {
-    if (!jobId || !running) return;
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const job = await getAiJob(projectId, jobId);
-        if (!cancelled) hydrate(job);
-      } catch (e) {
-        if (!cancelled) {
-          setRunning(false);
-          setErr((e as Error).message);
-        }
-      }
-    };
-    tick();
-    const timer = window.setInterval(tick, 1200);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [projectId, jobId, running]);
-
-  async function generate() {
-    if (!topic.trim() || running) return;
-    setRunning(true);
-    setText("");
-    setSummary(null);
-    setAnnotated(null);
-    setProvenanceMap(null);
-    setErr(null);
-    try {
-      const job = await createAiJob(
-        projectId,
-        { kind: "review", corpusId: corpusId || undefined, type, topic },
-        llm ?? (apiKey ? { apiKey } : {}),
-      );
-      hydrate(job);
-    } catch (e) {
-      setErr((e as Error).message);
-      setRunning(false);
-    }
-  }
-
-  const exportText = annotated || text;
   function exportMarkdown() {
     if (!exportText) return;
-    const typeLabel = TYPES.find(([v]) => v === type)?.[1] ?? type;
+    const typeLabel = REVIEW_TYPES.find(([v]) => v === type)?.[1] ?? type;
     // 剥离溯源锚点包裹标记(保留内部 [n] 引用), 否则原始 [[anchor:...]] 串泄漏进导出文本。
     const clean = exportText
       .replace(/\[\[anchor:[A-Za-z0-9_-]+\]\]/g, "")
@@ -150,7 +63,7 @@ export function ReviewPanel({
       <AiToolbar>
         <AiField label="论型" htmlFor="review-type">
           <select id="review-type" className="input" value={type} onChange={(e) => setType(e.target.value)}>
-            {TYPES.map(([v, label]) => (
+            {REVIEW_TYPES.map(([v, label]) => (
               <option key={v} value={v}>
                 {label}
               </option>
@@ -165,13 +78,26 @@ export function ReviewPanel({
             onChange={(e) => setTopic(e.target.value)}
           />
         </AiField>
-        <button type="button" className="btn btn-primary" onClick={generate} disabled={!topic.trim() || running}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={generate}
+          disabled={!topic.trim() || running || !!precheck}
+          title={precheck ? precheck.message : undefined}
+        >
           {running ? "生成中…" : "生成综述"}
         </button>
         <button type="button" className="btn" onClick={exportMarkdown} disabled={!exportText}>
           导出 Markdown
         </button>
       </AiToolbar>
+
+      {precheck && (
+        <p className="muted ai-empty" role="status">
+          {precheck.message}：{precheck.detail}{" "}
+          <a href={precheck.href}>{precheck.action}</a>
+        </p>
+      )}
 
       <AiKeyNotice hasKey={!!(llm?.apiKey || apiKey)} />
 

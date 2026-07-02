@@ -142,6 +142,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrValidation"
 
+  /projects:
+    get:
+      operationId: listProjects
+      summary: 列出所有项目
+      tags: [projects]
+      responses:
+        "200":
+          description: 项目列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectListResponse"
+    post:
+      operationId: createProject
+      summary: 创建新项目
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreateRequest"
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectRef"
+        "422":
+          description: 参数校验失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrValidation"
+
+  /projects/{pid}:
+    get:
+      operationId: getProject
+      summary: 获取项目详情
+      description: 返回项目统计、当前 activeCorpus（最新 ready）和 latestCorpus（最近一次构建，含失败原因）。
+      tags: [projects]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 项目 DB id（整数）
+      responses:
+        "200":
+          description: 项目详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
   /projects/{pid}/corpus/materialize:
     post:
       operationId: materializeCorpus
@@ -664,6 +727,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrNotFound"
 
+  /projects/{projectId}/papers:
+    get:
+      operationId: getProjectPapers
+      summary: 列出项目文献
+      tags: [library]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 项目 DB 主键（int）
+      responses:
+        "200":
+          description: 项目文献列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPaperListResponse"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
   /projects/{projectId}/papers/{paperId}:
     get:
       operationId: getPaperDetail
@@ -691,6 +780,106 @@ paths:
                 $ref: "#/components/schemas/PaperDetail"
         "404":
           description: 项目或文献不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+    patch:
+      operationId: patchInclusion
+      summary: 更新文献纳排状态
+      tags: [library]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 项目 DB 主键（int）
+        - name: paperId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 文献 DB 主键（int）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InclusionPatchRequest"
+      responses:
+        "200":
+          description: 更新后的项目文献条目
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPaperItem"
+        "404":
+          description: 项目或文献不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{projectId}/papers/{paperId}/markdown:
+    get:
+      operationId: getPaperMarkdown
+      summary: 获取 MinerU Markdown 全文预览
+      tags: [library]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 项目 DB 主键（int）
+        - name: paperId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 文献 DB 主键（int）
+      responses:
+        "200":
+          description: Markdown 全文预览；不可用时 available=false
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaperMarkdown"
+        "404":
+          description: 项目或文献不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{projectId}/papers/{paperId}/structure:
+    get:
+      operationId: getStructure
+      summary: 获取文档结构化溯源数据
+      tags: [library]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 项目 DB 主键（int）
+        - name: paperId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 文献 DB 主键（int）
+      responses:
+        "200":
+          description: 文档结构化溯源数据
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StructureResponse"
+        "404":
+          description: 项目/文献不存在，或文献无结构化解析数据
           content:
             application/json:
               schema:
@@ -1055,6 +1244,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrNotFound"
 
+  /projects/{projectId}/quality-report:
+    get:
+      operationId: getQualityReport
+      summary: 获取项目语料轻量质检报告
+      tags: [library]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: integer
+            description: 项目 DB 主键（int）
+      responses:
+        "200":
+          description: 项目质检报告
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QualityReport"
+
   /projects/{projectId}/prisma:
     post:
       operationId: buildPrisma
@@ -1281,6 +1490,414 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrNotFound"
+
+  /ai/ping:
+    post:
+      operationId: pingLlm
+      summary: 测试 LLM 连通性
+      tags: [ai]
+      parameters:
+        - { name: X-LLM-Key, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Base-URL, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Model, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: 连通性测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPingResult"
+        "400":
+          description: 未提供 API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrValidation"
+        "502":
+          description: LLM 请求失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrValidation"
+
+  /ai/image/ping:
+    post:
+      operationId: pingImage
+      summary: 测试生图服务连通性
+      tags: [ai]
+      parameters:
+        - { name: X-Image-Key, in: header, required: false, schema: { type: string } }
+        - { name: X-Image-Base-URL, in: header, required: false, schema: { type: string } }
+        - { name: X-Image-Model, in: header, required: false, schema: { type: string } }
+        - { name: X-Image-Size, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageSettingsPayload"
+      responses:
+        "200":
+          description: 生图连通性测试结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagePingResult"
+        "400":
+          description: 未提供 API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrValidation"
+        "502":
+          description: 生图请求失败
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrValidation"
+
+  /projects/{pid}/ai/jobs:
+    post:
+      operationId: createAiJob
+      summary: 创建可恢复的 AI 生成任务
+      tags: [ai]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - { name: X-LLM-Key, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Base-URL, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Model, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiJobCreateRequest"
+      responses:
+        "202":
+          description: 已创建任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiJobItem"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+    get:
+      operationId: listAiJobs
+      summary: 列出项目 AI 任务
+      tags: [ai]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/AiJobKind"
+        - name: corpusId
+          in: query
+          required: false
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 20 }
+      responses:
+        "200":
+          description: AI 任务列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiJobListResponse"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{pid}/ai/jobs/{job_id}:
+    get:
+      operationId: getAiJob
+      summary: 获取 AI 任务详情
+      tags: [ai]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: job_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: AI 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiJobItem"
+        "404":
+          description: 任务不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{pid}/agent/runs:
+    post:
+      operationId: createRun
+      summary: 创建并启动 Agent Run
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - { name: X-LLM-Key, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Base-URL, in: header, required: false, schema: { type: string } }
+        - { name: X-LLM-Model, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunRequest"
+      responses:
+        "200":
+          description: 已启动
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunRef"
+        "404":
+          description: 项目不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+    get:
+      operationId: listRuns
+      summary: 列出项目 Agent Runs
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Agent Run 列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunListResponse"
+
+  /projects/{pid}/agent/runs/{rid}:
+    get:
+      operationId: getRun
+      summary: 获取 Agent Run 详情
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Agent Run 详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunDetail"
+        "404":
+          description: Run 不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{pid}/agent/runs/{rid}/events:
+    get:
+      operationId: streamAgentRun
+      summary: Agent Run SSE 事件流
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: integer }
+      responses:
+        "200":
+          description: SSE 事件流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Run 不存在
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrNotFound"
+
+  /projects/{pid}/agent/runs/{rid}/confirm:
+    post:
+      operationId: confirmRun
+      summary: 确认或拒绝待确认工具调用
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
+      responses:
+        "200":
+          description: 控制结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunControlResponse"
+
+  /projects/{pid}/agent/runs/{rid}/pause:
+    post:
+      operationId: pauseRun
+      summary: 暂停 Agent Run
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: 控制结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunControlResponse"
+
+  /projects/{pid}/agent/runs/{rid}/resume:
+    post:
+      operationId: resumeRun
+      summary: 恢复 Agent Run
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: 控制结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunControlResponse"
+
+  /projects/{pid}/agent/runs/{rid}/cancel:
+    post:
+      operationId: cancelRun
+      summary: 取消 Agent Run
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: 控制结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunControlResponse"
+
+  /projects/{pid}/agent/runs/{rid}/runlog:
+    get:
+      operationId: getRunLog
+      summary: 导出可验证 RunLog
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: RunLog JSON
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunLog"
+
+  /projects/{pid}/agent/runs/{rid}/grounding:
+    get:
+      operationId: getGrounding
+      summary: 获取 grounding 可信凭证摘要
+      tags: [agent]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: rid
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: grounding 摘要
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunGroundingSummary"
 
   # --- M4 工件端点 ---
 
@@ -1708,6 +2325,43 @@ components:
           ready: "#/components/schemas/CorpusReady"
           failed: "#/components/schemas/CorpusFailed"
 
+    # --- 项目管理 ---
+    ProjectCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        researchQuestion:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+
+    ProjectRef:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        createdAt:
+          type: string
+          nullable: true
+
+    ProjectListResponse:
+      type: object
+      required: [projects]
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectRef"
+
     # --- M2: corpus 物化 ---
     ActiveCorpusDetail:
       type: object
@@ -1736,6 +2390,77 @@ components:
         stale:
           type: boolean
           description: 当前 included 集合与 corpus 快照不同时为 true
+        errorReason:
+          type: string
+          nullable: true
+          description: 构建失败原因；activeCorpus 通常为 null
+
+    LatestCorpusDetail:
+      type: object
+      description: 项目最近一次 corpus 构建摘要，不按 status 过滤；failed 时带 errorReason。
+      required: [corpusId, status, contentHash]
+      properties:
+        corpusId:
+          type: integer
+          description: Postgres DB corpus.id
+        rCorpusId:
+          type: string
+          nullable: true
+          description: R 字符串语料 ID；status != ready 时为 null
+        status:
+          type: string
+          enum: [parsing, ready, failed]
+        documentCount:
+          type: integer
+          nullable: true
+          minimum: 0
+        contentHash:
+          type: string
+          description: included 集合指纹（sha256）
+        errorReason:
+          type: string
+          nullable: true
+          description: 构建失败原因；仅 failed 时通常非空
+        createdAt:
+          type: string
+          nullable: true
+          format: date-time
+
+    ProjectDetail:
+      type: object
+      description: 项目详情；activeCorpus 保持最新 ready 语义，latestCorpus 暴露最近一次构建状态。
+      required: [id, name, paperCount, includedCount, readableFulltextCount]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        researchQuestion:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        paperCount:
+          type: integer
+          minimum: 0
+        includedCount:
+          type: integer
+          minimum: 0
+        readableFulltextCount:
+          type: integer
+          minimum: 0
+          description: 可用于综述生成的全文篇数：included 文献中，存在 sha256 且 markdown_path 可读非空的文献数。
+        activeCorpus:
+          allOf:
+            - $ref: "#/components/schemas/ActiveCorpusDetail"
+          nullable: true
+          description: 最新 ready corpus；无 ready corpus 时为 null
+        latestCorpus:
+          allOf:
+            - $ref: "#/components/schemas/LatestCorpusDetail"
+          nullable: true
+          description: 最近一条 corpus，不过滤 status；失败构建也会返回
 
     CorpusMaterializeResponse:
       type: object
@@ -2317,6 +3042,140 @@ components:
       properties:
         query: { type: string, minLength: 1, maxLength: 2000 }
         history: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
+
+    AiPingResult:
+      type: object
+      required: [ok, model, baseUrl, content]
+      properties:
+        ok: { type: boolean }
+        model: { type: string }
+        baseUrl: { type: string }
+        content: { type: string }
+
+    ImageSettingsPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        baseUrl: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        size: { type: string, nullable: true }
+
+    ImagePingResult:
+      type: object
+      required: [ok, model, baseUrl, size]
+      properties:
+        ok: { type: boolean }
+        model: { type: string }
+        baseUrl: { type: string }
+        size: { type: string }
+        detail: { type: string, nullable: true }
+
+    AiJobStatus:
+      type: string
+      enum: [queued, running, done, failed, cancelled]
+    RunStatus:
+      type: string
+      enum: [queued, running, awaiting_confirmation, paused, done, failed, cancelled]
+
+    AiJobCreatableKind:
+      type: string
+      description: 通用 POST /ai/jobs 可创建的 kind（gap_discover/gap_verify 走 research 专用端点）
+      enum:
+        - review
+        - chat
+        - summary
+        - translate
+        - rewrite
+        - infographic_prompt
+        - infographic_image
+
+    AiJobKind:
+      type: string
+      description: 已持久化/可列出的 kind 全集
+      enum:
+        - review
+        - chat
+        - summary
+        - translate
+        - rewrite
+        - infographic_prompt
+        - infographic_image
+        - gap_discover
+        - gap_verify
+
+    AiJobCreateRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          $ref: "#/components/schemas/AiJobCreatableKind"
+        corpusId: { type: string, nullable: true }
+        type: { type: string, nullable: true }
+        topic: { type: string, nullable: true }
+        query: { type: string, nullable: true }
+        history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        text: { type: string, nullable: true }
+        direction: { type: string, nullable: true, enum: [en2zh, zh2en, null] }
+        action: { type: string, nullable: true }
+        style: { type: string, nullable: true }
+        imagePrompt: { type: string, nullable: true }
+
+    AiJobEvent:
+      type: object
+      additionalProperties: true
+      properties:
+        event: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+
+    AiJobItem:
+      type: object
+      required: [id, projectId, kind, status]
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        corpusId: { type: string, nullable: true }
+        kind:
+          $ref: "#/components/schemas/AiJobKind"
+        status:
+          $ref: "#/components/schemas/AiJobStatus"
+        request:
+          type: object
+          nullable: true
+          additionalProperties: true
+        resultText: { type: string, default: "" }
+        annotatedText: { type: string, nullable: true }
+        summary:
+          type: object
+          nullable: true
+          additionalProperties: true
+        provenanceMap:
+          type: object
+          nullable: true
+          additionalProperties: true
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiJobEvent"
+        error: { type: string, nullable: true }
+        createdAt: { type: string, nullable: true }
+        updatedAt: { type: string, nullable: true }
+        completedAt: { type: string, nullable: true }
+
+    AiJobListResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiJobItem"
+
     CiteResult:
       type: object
       required: [schemaVersion, projectId, corpusId, style, citations]
@@ -2499,6 +3358,139 @@ components:
           items:
             type: integer
           description: 所有成功入库的 paper DB id（含 imported + skipped 两类）
+
+    # --- Agent Run ---
+    AgentRunRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        autoConfirm:
+          type: boolean
+          default: false
+
+    ConfirmRequest:
+      type: object
+      required: [toolCallId, decision]
+      properties:
+        toolCallId:
+          type: string
+        decision:
+          type: string
+          enum: [approve, reject]
+
+    RunControlResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/RunStatus"
+
+    AgentRunRef:
+      type: object
+      required: [runId, projectId, status]
+      properties:
+        runId:
+          type: integer
+        projectId:
+          type: integer
+        status:
+          $ref: "#/components/schemas/RunStatus"
+
+    AgentRunListResponse:
+      type: object
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentRunRef"
+
+    RunDetail:
+      type: object
+      required: [runId, status]
+      properties:
+        runId:
+          type: integer
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        roundsLog:
+          type: array
+          items: {}
+        finalOutput:
+          type: string
+          nullable: true
+        evidenceRefs:
+          type: array
+          nullable: true
+          items: {}
+
+    RunLogManifest:
+      type: object
+      required: [event_count, tool_invocation_count, evidence_count, fabricated_count, chain_head, content_sha256]
+      properties:
+        event_count: { type: integer }
+        tool_invocation_count: { type: integer }
+        evidence_count: { type: integer }
+        fabricated_count: { type: integer }
+        chain_head: { type: string }
+        content_sha256: { type: string }
+
+    RunLog:
+      type: object
+      required: [schema_version, manifest]
+      additionalProperties: true
+      properties:
+        schema_version:
+          type: string
+        manifest:
+          $ref: "#/components/schemas/RunLogManifest"
+        run:
+          type: object
+          additionalProperties: true
+
+    RunGroundingManifest:
+      type: object
+      required: [eventCount, toolInvocationCount, evidenceCount, fabricatedCount, chainHead, contentSha256]
+      properties:
+        eventCount: { type: integer }
+        toolInvocationCount: { type: integer }
+        evidenceCount: { type: integer }
+        fabricatedCount: { type: integer }
+        chainHead: { type: string }
+        contentSha256: { type: string }
+
+    RunGroundingMetrics:
+      type: object
+      required: [groundingAccuracy, provenanceHitRate, zeroFabricationRate, insufficientEvidence, scoreable, evidenceCount, fabricatedCount, greenCount, yellowCount]
+      properties:
+        groundingAccuracy: { type: number, nullable: true }
+        provenanceHitRate: { type: number, nullable: true }
+        zeroFabricationRate: { type: number, nullable: true }
+        insufficientEvidence: { type: boolean }
+        scoreable: { type: boolean }
+        evidenceCount: { type: integer }
+        fabricatedCount: { type: integer }
+        greenCount: { type: integer }
+        yellowCount: { type: integer }
+
+    RunGroundingSummary:
+      type: object
+      required: [runId, status, modelUsed, createdAt, manifest, metrics, corpusHashCount, verifyHint]
+      properties:
+        runId: { type: integer }
+        status: { type: string }
+        modelUsed: { type: string }
+        createdAt: { type: string, nullable: true }
+        manifest:
+          $ref: "#/components/schemas/RunGroundingManifest"
+        metrics:
+          $ref: "#/components/schemas/RunGroundingMetrics"
+        corpusHashCount: { type: integer }
+        verifyHint: { type: string }
 
     # --- M4 工件 ---
 
@@ -2683,12 +3675,165 @@ components:
           type: boolean
           description: 是否已有结构化抽取结果（paper_extraction 表中存在对应行）
 
+    ProjectPaperListResponse:
+      type: object
+      required: [papers]
+      properties:
+        papers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectPaperItem"
+
+    InclusionPatchRequest:
+      type: object
+      required: [inclusionStatus]
+      properties:
+        inclusionStatus:
+          type: string
+          enum: [candidate, included, excluded, maybe]
+        exclusionReason:
+          type: string
+          nullable: true
+        screeningScore:
+          type: integer
+          nullable: true
+
+    PaperMarkdown:
+      type: object
+      required: [available, markdown, length, truncated, sha256]
+      properties:
+        available:
+          type: boolean
+        markdown:
+          type: string
+        length:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+        sha256:
+          type: string
+          nullable: true
+
+    StructureBlock:
+      type: object
+      required: [block_idx, type, text_level, page_no, md_line_start, md_line_end, bbox, section_title, text_preview]
+      properties:
+        block_idx: { type: integer }
+        type: { type: string, enum: [text, title, table, image] }
+        text_level: { type: integer, nullable: true }
+        page_no: { type: integer }
+        md_line_start: { type: integer, nullable: true }
+        md_line_end: { type: integer, nullable: true }
+        bbox:
+          type: array
+          nullable: true
+          minItems: 4
+          maxItems: 4
+          prefixItems:
+            - { type: number }
+            - { type: number }
+            - { type: number }
+            - { type: number }
+        section_title: { type: string }
+        text_preview: { type: string }
+
+    StructureCell:
+      type: object
+      required: [row, col, text]
+      properties:
+        row: { type: integer }
+        col: { type: integer }
+        text: { type: string }
+
+    StructureTable:
+      type: object
+      required: [table_idx, block_idx, page_no, bbox, n_rows, n_cols, grid, caption]
+      properties:
+        table_idx: { type: integer }
+        block_idx: { type: integer }
+        page_no: { type: integer }
+        bbox:
+          type: array
+          nullable: true
+          minItems: 4
+          maxItems: 4
+          prefixItems:
+            - { type: number }
+            - { type: number }
+            - { type: number }
+            - { type: number }
+        n_rows: { type: integer }
+        n_cols: { type: integer }
+        grid:
+          type: array
+          items:
+            type: array
+            items: { type: string }
+        caption: { type: string }
+
+    StructureResponse:
+      type: object
+      description: 文档结构化溯源数据；字段与 services/agent/app/schemas.py 的 StructureResponse 一致。
+      required: [paper_id, attachment_id, page_count, blocks, tables, has_bbox, markdown_sha256]
+      properties:
+        paper_id: { type: integer }
+        attachment_id: { type: integer }
+        page_count: { type: integer }
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StructureBlock"
+        tables:
+          type: array
+          items:
+            $ref: "#/components/schemas/StructureTable"
+        has_bbox: { type: boolean }
+        markdown_sha256: { type: string, nullable: true }
+        schema_version: { type: integer }
+        source_pdf_sha256: { type: string, nullable: true }
+        bbox_coord_space: { type: string, nullable: true }
+        page_width: { type: number, nullable: true }
+        page_height: { type: number, nullable: true }
+        rotation: { type: integer, nullable: true }
+
+    QualityIssue:
+      type: object
+      required: [paper_id, type, detail]
+      properties:
+        paper_id:
+          type: integer
+        type:
+          type: string
+        detail:
+          type: string
+
+    QualityReport:
+      type: object
+      required: [total, by_type, issues]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        by_type:
+          type: object
+          additionalProperties:
+            type: integer
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityIssue"
+
     # --- P2-T3 from-search 入库 ---
 
     FromSearchCandidate:
       type: object
       required: [title]
       properties:
+        candidateId:
+          type: string
+          nullable: true
+          maxLength: 255
         title:
           type: string
           minLength: 1
@@ -2773,9 +3918,23 @@ components:
           type: string
           enum: [candidate, included]
 
+    FromSearchFailedItem:
+      type: object
+      required: [title, reason]
+      properties:
+        candidateId:
+          type: string
+          nullable: true
+          description: 前端候选 ID，用于重选失败项
+        title:
+          type: string
+        reason:
+          type: string
+          description: 单条入库失败原因
+
     FromSearchResult:
       type: object
-      required: [imported, skipped, failed, paperIds]
+      required: [imported, skipped, failed, failedCount, paperIds]
       properties:
         imported:
           type: integer
@@ -2786,9 +3945,14 @@ components:
           minimum: 0
           description: 幂等跳过（paper 已存在于项目）的文献数
         failed:
+          type: array
+          items:
+            $ref: "#/components/schemas/FromSearchFailedItem"
+          description: 处理失败的候选明细（单条异常，不影响其他候选）
+        failedCount:
           type: integer
           minimum: 0
-          description: 处理失败的候选数（单条异常，不影响其他候选）
+          description: 处理失败的候选数，等于 failed.length
         paperIds:
           type: array
           items:
@@ -2872,6 +4036,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FromSearchCandidate"
+        partial:
+          type: boolean
+          default: false
+          description: 上游限流/超时时为 true，表示仅返回部分结果
+        partialReason:
+          type: string
+          nullable: true
+          description: partial=true 时的上游原因说明
         totalCount:
           type: integer
           nullable: true
@@ -3373,10 +4545,10 @@ components:
           type: string
         run_status:
           type: string
-          enum: [running, completed, failed]
+          enum: [running, done, failed]
           description: >
             本 run 生命周期（轮询停止信号，codex B1-P1）。running 时前端持续轮询；
-            completed/failed 时前端停轮询。fail-loud：失败显式 failed，绝不静默成 completed。
+            done/failed 时前端停轮询。fail-loud：失败显式 failed，绝不静默成 done。
         entries:
           type: array
           items:

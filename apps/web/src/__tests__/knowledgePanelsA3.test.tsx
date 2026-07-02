@@ -12,6 +12,9 @@ import { render, screen, fireEvent, within, waitFor } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { asDbCorpusId, asRCorpusId } from "../api/corpusIds";
+
+const CID = asRCorpusId("c1");
 
 // ---- mock echarts 实例（捕获 setOption 的 option 供断言出图）----
 const { setOptionSpy, initSpy, ensureWordCloudSpy } = vi.hoisted(() => {
@@ -160,7 +163,7 @@ describe("DocumentsPanel 关键词热点", () => {
       isLoading: false,
       isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
 
     // 等词云惰性注册完成后出图
     await screen.findByRole("img", { name: "关键词词云" });
@@ -190,7 +193,7 @@ describe("DocumentsPanel 关键词热点", () => {
       isLoading: false,
       isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(await screen.findByText(/词云在当前环境不可用/)).toBeInTheDocument();
     // 频次表兜底：含关键词
     expect(screen.getByText("区块链")).toBeInTheDocument();
@@ -204,7 +207,7 @@ describe("DocumentsPanel 关键词热点", () => {
       isLoading: false,
       isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText(/缺少字段「关键词\(DE\)」/)).toBeInTheDocument();
     expect(screen.getByText(/OpenAlex\/WoS/)).toBeInTheDocument();
     // 高被引表仍渲染
@@ -217,7 +220,7 @@ describe("DocumentsPanel 关键词热点", () => {
       isLoading: false,
       isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("当前语料无高被引文献数据")).toBeInTheDocument();
   });
 
@@ -227,7 +230,7 @@ describe("DocumentsPanel 关键词热点", () => {
       isLoading: false,
       isError: false,
     });
-    render(<DocumentsPanel projectId="1" corpusId="c1" />);
+    render(<DocumentsPanel projectId="1" corpusId={CID} />);
     // 第一数据行的被引应为 30（降序）
     const rows = screen.getAllByRole("row").slice(1);
     expect(within(rows[0]).getByText("30")).toBeInTheDocument();
@@ -244,7 +247,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     // 节点>10 → 显示滑块
     expect(screen.getByRole("slider")).toBeInTheDocument();
     // 切片后传给 NetworkGraph 的节点数 = 12（默认全取）
@@ -258,7 +261,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     netCalls.length = 0; // 清掉初次渲染
     // 滑块 min=10，故拖到 10 验证切片（5 低于 min，用 10）
     fireEvent.change(screen.getByRole("slider"), { target: { value: "10" } });
@@ -274,7 +277,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
     expect(netCalls[netCalls.length - 1].nodes).toBe(6);
   });
@@ -285,7 +288,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("数据样本不足")).toBeInTheDocument();
     expect(screen.queryByTestId("net-stub")).not.toBeInTheDocument();
   });
@@ -296,7 +299,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("数据样本不足")).toBeInTheDocument();
   });
 
@@ -306,7 +309,7 @@ describe("ConceptualPanel 主题地图", () => {
       isLoading: false,
       isError: false,
     });
-    render(<ConceptualPanel projectId="1" corpusId="c1" />);
+    render(<ConceptualPanel projectId="1" corpusId={CID} />);
     fireEvent.click(screen.getByRole("button", { name: /导出/ }));
     expect(screen.getByRole("menuitem", { name: "PNG 图片" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "CSV 数据" })).toBeInTheDocument();
@@ -325,7 +328,7 @@ describe("IntellectualPanel 知识脉络", () => {
       isLoading: false,
       isError: false,
     });
-    const { rerender } = render(<IntellectualPanel projectId="1" corpusId="c1" />);
+    const { rerender } = render(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByTestId("net-stub")).toBeInTheDocument();
 
     intellectualSpy.mockReturnValue({
@@ -333,7 +336,7 @@ describe("IntellectualPanel 知识脉络", () => {
       isLoading: false,
       isError: false,
     });
-    rerender(<IntellectualPanel projectId="1" corpusId="c1" />);
+    rerender(<IntellectualPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("数据样本不足")).toBeInTheDocument();
   });
 });
@@ -348,7 +351,7 @@ describe("SocialPanel 合作网络", () => {
       isLoading: false,
       isError: false,
     });
-    render(<SocialPanel projectId="1" corpusId="c1" />);
+    render(<SocialPanel projectId="1" corpusId={CID} />);
     expect(screen.getByText("作者合作网络")).toBeInTheDocument();
     expect(screen.getByText("国家合作网络")).toBeInTheDocument();
     // 两个网络桩
@@ -363,7 +366,7 @@ describe("SocialPanel 合作网络", () => {
       isLoading: false,
       isError: false,
     });
-    render(<SocialPanel projectId="1" corpusId="c1" />);
+    render(<SocialPanel projectId="1" corpusId={CID} />);
     // 一个网络桩（作者），一个空态（国家）
     expect(screen.getAllByTestId("net-stub")).toHaveLength(1);
     expect(screen.getByText("数据样本不足")).toBeInTheDocument();
@@ -375,7 +378,7 @@ describe("SocialPanel 合作网络", () => {
       isLoading: false,
       isError: false,
     });
-    render(<SocialPanel projectId="1" corpusId="c1" />);
+    render(<SocialPanel projectId="1" corpusId={CID} />);
     expect(screen.getAllByRole("button", { name: /导出/ })).toHaveLength(2);
   });
 });
@@ -387,7 +390,14 @@ describe("AnalysisSidebar per-view 置灰契约", () => {
   function renderSidebar(corpusReady: boolean) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const activeCorpus = corpusReady
-      ? { corpusId: 1, rCorpusId: "r1", status: "ready" as const, stale: false, documentCount: 10, contentHash: "h" }
+      ? {
+          corpusId: asDbCorpusId(1),
+          rCorpusId: asRCorpusId("r1"),
+          status: "ready" as const,
+          stale: false,
+          documentCount: 10,
+          contentHash: "h",
+        }
       : null;
     return render(
       <QueryClientProvider client={qc}>
@@ -413,8 +423,8 @@ describe("AnalysisSidebar per-view 置灰契约", () => {
     renderSidebar(false);
     expect(viewButton("相关性筛选")).toBeDisabled(); // screen requiresCorpus:true
     expect(viewButton("PRISMA")).not.toBeDisabled(); // prisma requiresCorpus:false
-    // 文献库洞察组未整组置灰 → 不显示该组(未就绪)；仅 3 个全需语料的组有徽标
-    expect(screen.getAllByText("(未就绪)")).toHaveLength(3);
+    // 文献库洞察/AI 工具台均有无语料可用视图；仅 2 个全需语料的组有徽标。
+    expect(screen.getAllByText("(未就绪)")).toHaveLength(2);
   });
 
   it("有语料：screen 与 prisma 均可用", () => {

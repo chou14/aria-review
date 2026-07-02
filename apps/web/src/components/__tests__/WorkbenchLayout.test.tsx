@@ -4,18 +4,18 @@
  * 覆盖真实变更：landing 是"语料工作台"，且内嵌的 ProjectsPage 进入流不破坏
  * （"我的项目" / "新建 SLR 项目" / 项目名称输入仍在），④ 下游应用保留综述/分析入口。
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeEach } from "vitest";
 
-// 有一个项目 → ④ 下游入口走 Link 深链（覆盖 latestPid 分支）
+const { mockUseProjects, mockRefetch } = vi.hoisted(() => ({
+  mockUseProjects: vi.fn(),
+  mockRefetch: vi.fn(),
+}));
+
 vi.mock("../../api/agentHooks", () => ({
-  useProjects: () => ({
-    data: { projects: [{ id: 7, name: "示例项目", createdAt: "2026-06-14T00:00:00Z" }] },
-    isLoading: false,
-    error: null,
-  }),
+  useProjects: () => mockUseProjects(),
   useCreateProject: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
@@ -33,6 +33,17 @@ function renderWorkbench() {
 }
 
 describe("F1 WorkbenchLayout landing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseProjects.mockReturnValue({
+      data: { projects: [{ id: 7, name: "示例项目", createdAt: "2026-06-14T00:00:00Z" }] },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: mockRefetch,
+    });
+  });
+
   it("标题是语料工作台（不是综述生成器）", () => {
     renderWorkbench();
     expect(screen.getByRole("heading", { name: /语料工作台/ })).toBeInTheDocument();
@@ -59,5 +70,21 @@ describe("F1 WorkbenchLayout landing", () => {
     expect(review).toHaveAttribute("href", "/projects/7/analysis/review");
     const analysis = screen.getByRole("link", { name: "文献计量分析" });
     expect(analysis).toHaveAttribute("href", "/projects/7/analysis/overview");
+  });
+
+  it("项目列表 error 态展示错误与重试入口", () => {
+    mockUseProjects.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      error: new Error("项目服务失败"),
+      refetch: mockRefetch,
+    });
+
+    renderWorkbench();
+
+    expect(screen.getAllByText("项目服务失败").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole("button", { name: "重试" })[0]);
+    expect(mockRefetch).toHaveBeenCalled();
   });
 });

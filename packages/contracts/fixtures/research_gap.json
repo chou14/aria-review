@@ -1,0 +1,1212 @@
+{
+  "FIXTURE_PID": 5,
+  "FIXTURE_CID": "rc_mda_001",
+  "FIXTURE_RUN_ID": "run_gap_001",
+  "FIXTURE_VERIFY_RUN_ID": "run_verify_001",
+  "THRESHOLDS": {
+    "reverse_hit_high": 25,
+    "reverse_hit_low": 3
+  },
+  "verdictValuableG2": {
+    "gap_id": "g2",
+    "verdict": "valuable",
+    "score": 0.86,
+    "thresholds": {
+      "reverse_hit_high": 25,
+      "reverse_hit_low": 3
+    },
+    "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+    "decided_by": "deterministic"
+  },
+  "verdictValuableG4": {
+    "gap_id": "g4",
+    "verdict": "valuable",
+    "score": 0.79,
+    "thresholds": {
+      "reverse_hit_high": 25,
+      "reverse_hit_low": 3
+    },
+    "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+    "decided_by": "deterministic"
+  },
+  "verdictLikelyFilledG3": {
+    "gap_id": "g3",
+    "verdict": "likely_filled",
+    "score": 0.22,
+    "thresholds": {
+      "reverse_hit_high": 25,
+      "reverse_hit_low": 3
+    },
+    "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+    "decided_by": "deterministic"
+  },
+  "verdictInconclusiveG5": {
+    "gap_id": "g5",
+    "verdict": "inconclusive",
+    "score": null,
+    "thresholds": {
+      "reverse_hit_high": 25,
+      "reverse_hit_low": 3
+    },
+    "rationale": "反向检索命中 11 篇（介于阈值 3–25 之间），且未检出明确共现断层 → 证据不足以判定，建议人工复核。",
+    "decided_by": "deterministic"
+  },
+  "evidenceG2": {
+    "gap_id": "g2",
+    "reverse_search": {
+      "query": "MD&A 语气 语义嵌入 跨行业 对照",
+      "provider": "sciverse",
+      "hit_count": 2,
+      "top_hits": [
+        {
+          "title": "Embedding-based tone measurement in annual reports",
+          "year": 2023,
+          "doi": "10.1016/j.jacc.2023.0142",
+          "relevance": 0.41
+        },
+        {
+          "title": "语义向量与年报语气的单行业证据",
+          "year": null,
+          "doi": null,
+          "relevance": 0.33
+        }
+      ]
+    },
+    "biblio_structure": {
+      "metric": "cooccurrence_gap",
+      "value": 0.12,
+      "interpretation": "「语义嵌入语气」与「跨行业对照」两概念在共现网络中几乎不相邻（共现强度 0.12，低于断层阈值），存在结构洞。",
+      "source_view": "conceptual"
+    },
+    "gathered_by": "subagent",
+    "skipped": []
+  },
+  "evidenceG3": {
+    "gap_id": "g3",
+    "reverse_search": {
+      "query": "语气操纵 真实盈余管理 替代关系 理论框架",
+      "provider": "openalex",
+      "hit_count": 41,
+      "top_hits": [
+        {
+          "title": "Tone management as a substitute for real earnings management",
+          "year": 2021,
+          "doi": "10.2308/accr-52910",
+          "relevance": 0.74
+        },
+        {
+          "title": "Narrative manipulation and earnings quality: a review",
+          "year": 2022,
+          "doi": "10.1111/1475-679X.12410",
+          "relevance": 0.69
+        },
+        {
+          "title": "语气操纵与盈余管理替代的经验证据",
+          "year": 2020,
+          "doi": null,
+          "relevance": 0.61
+        }
+      ]
+    },
+    "biblio_structure": {
+      "metric": "low_coupling",
+      "value": 0.58,
+      "interpretation": "两概念耦合度中等（0.58），非显著断层；结合高命中，结构未支持「真空白」。",
+      "source_view": "conceptual"
+    },
+    "gathered_by": "subagent",
+    "skipped": []
+  },
+  "evidenceG5": {
+    "gap_id": "g5",
+    "reverse_search": {
+      "query": "文本语气异常 盈余质量 预警 中小板",
+      "provider": "openalex",
+      "hit_count": 11,
+      "top_hits": [
+        {
+          "title": "Abnormal tone and earnings quality signals",
+          "year": 2022,
+          "doi": "10.1016/j.jcorpfin.2022.102233",
+          "relevance": 0.52
+        },
+        {
+          "title": "中小板公司文本语气与盈余质量",
+          "year": null,
+          "doi": null,
+          "relevance": 0.4
+        }
+      ]
+    },
+    "biblio_structure": {
+      "metric": "low_coupling",
+      "value": 0.44,
+      "interpretation": "耦合度 0.44，未检出明确共现断层；结构证据不足以单独支持判定。",
+      "source_view": null
+    },
+    "gathered_by": "subagent",
+    "skipped": [
+      {
+        "reason": "OpenAlex 近 5 年过滤后候选不足，已跳过补充检索"
+      }
+    ]
+  },
+  "evidenceG4": {
+    "gap_id": "g4",
+    "reverse_search": {
+      "query": "文本语气异常 盈余质量 预警 中小板 有效性",
+      "provider": "sciverse",
+      "hit_count": 1,
+      "top_hits": [
+        {
+          "title": "Textual tone anomaly as an earnings-quality early warning",
+          "year": 2024,
+          "doi": "10.1016/j.bar.2024.101355",
+          "relevance": 0.38
+        }
+      ]
+    },
+    "biblio_structure": {
+      "metric": "cooccurrence_gap",
+      "value": 0.09,
+      "interpretation": "「文本语气异常」与「中小板盈余质量」两概念在共现网络中近乎不相邻（0.09），存在显著结构洞。",
+      "source_view": "conceptual"
+    },
+    "gathered_by": "subagent",
+    "skipped": []
+  },
+  "verdictResultG2": {
+    "gap_id": "g2",
+    "verdict": {
+      "gap_id": "g2",
+      "verdict": "valuable",
+      "score": 0.86,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+      "decided_by": "deterministic"
+    },
+    "evidence": {
+      "gap_id": "g2",
+      "reverse_search": {
+        "query": "MD&A 语气 语义嵌入 跨行业 对照",
+        "provider": "sciverse",
+        "hit_count": 2,
+        "top_hits": [
+          {
+            "title": "Embedding-based tone measurement in annual reports",
+            "year": 2023,
+            "doi": "10.1016/j.jacc.2023.0142",
+            "relevance": 0.41
+          },
+          {
+            "title": "语义向量与年报语气的单行业证据",
+            "year": null,
+            "doi": null,
+            "relevance": 0.33
+          }
+        ]
+      },
+      "biblio_structure": {
+        "metric": "cooccurrence_gap",
+        "value": 0.12,
+        "interpretation": "「语义嵌入语气」与「跨行业对照」两概念在共现网络中几乎不相邻（共现强度 0.12，低于断层阈值），存在结构洞。",
+        "source_view": "conceptual"
+      },
+      "gathered_by": "subagent",
+      "skipped": []
+    }
+  },
+  "verdictResultG3": {
+    "gap_id": "g3",
+    "verdict": {
+      "gap_id": "g3",
+      "verdict": "likely_filled",
+      "score": 0.22,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+      "decided_by": "deterministic"
+    },
+    "evidence": {
+      "gap_id": "g3",
+      "reverse_search": {
+        "query": "语气操纵 真实盈余管理 替代关系 理论框架",
+        "provider": "openalex",
+        "hit_count": 41,
+        "top_hits": [
+          {
+            "title": "Tone management as a substitute for real earnings management",
+            "year": 2021,
+            "doi": "10.2308/accr-52910",
+            "relevance": 0.74
+          },
+          {
+            "title": "Narrative manipulation and earnings quality: a review",
+            "year": 2022,
+            "doi": "10.1111/1475-679X.12410",
+            "relevance": 0.69
+          },
+          {
+            "title": "语气操纵与盈余管理替代的经验证据",
+            "year": 2020,
+            "doi": null,
+            "relevance": 0.61
+          }
+        ]
+      },
+      "biblio_structure": {
+        "metric": "low_coupling",
+        "value": 0.58,
+        "interpretation": "两概念耦合度中等（0.58），非显著断层；结合高命中，结构未支持「真空白」。",
+        "source_view": "conceptual"
+      },
+      "gathered_by": "subagent",
+      "skipped": []
+    }
+  },
+  "verdictResultG4": {
+    "gap_id": "g4",
+    "verdict": {
+      "gap_id": "g4",
+      "verdict": "valuable",
+      "score": 0.79,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+      "decided_by": "deterministic"
+    },
+    "evidence": {
+      "gap_id": "g4",
+      "reverse_search": {
+        "query": "文本语气异常 盈余质量 预警 中小板 有效性",
+        "provider": "sciverse",
+        "hit_count": 1,
+        "top_hits": [
+          {
+            "title": "Textual tone anomaly as an earnings-quality early warning",
+            "year": 2024,
+            "doi": "10.1016/j.bar.2024.101355",
+            "relevance": 0.38
+          }
+        ]
+      },
+      "biblio_structure": {
+        "metric": "cooccurrence_gap",
+        "value": 0.09,
+        "interpretation": "「文本语气异常」与「中小板盈余质量」两概念在共现网络中近乎不相邻（0.09），存在显著结构洞。",
+        "source_view": "conceptual"
+      },
+      "gathered_by": "subagent",
+      "skipped": []
+    }
+  },
+  "verdictResultG5": {
+    "gap_id": "g5",
+    "verdict": {
+      "gap_id": "g5",
+      "verdict": "inconclusive",
+      "score": null,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索命中 11 篇（介于阈值 3–25 之间），且未检出明确共现断层 → 证据不足以判定，建议人工复核。",
+      "decided_by": "deterministic"
+    },
+    "evidence": {
+      "gap_id": "g5",
+      "reverse_search": {
+        "query": "文本语气异常 盈余质量 预警 中小板",
+        "provider": "openalex",
+        "hit_count": 11,
+        "top_hits": [
+          {
+            "title": "Abnormal tone and earnings quality signals",
+            "year": 2022,
+            "doi": "10.1016/j.jcorpfin.2022.102233",
+            "relevance": 0.52
+          },
+          {
+            "title": "中小板公司文本语气与盈余质量",
+            "year": null,
+            "doi": null,
+            "relevance": 0.4
+          }
+        ]
+      },
+      "biblio_structure": {
+        "metric": "low_coupling",
+        "value": 0.44,
+        "interpretation": "耦合度 0.44，未检出明确共现断层；结构证据不足以单独支持判定。",
+        "source_view": null
+      },
+      "gathered_by": "subagent",
+      "skipped": [
+        {
+          "reason": "OpenAlex 近 5 年过滤后候选不足，已跳过补充检索"
+        }
+      ]
+    }
+  },
+  "ALL_VERDICT_RESULTS": [
+    {
+      "gap_id": "g2",
+      "verdict": {
+        "gap_id": "g2",
+        "verdict": "valuable",
+        "score": 0.86,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+        "decided_by": "deterministic"
+      },
+      "evidence": {
+        "gap_id": "g2",
+        "reverse_search": {
+          "query": "MD&A 语气 语义嵌入 跨行业 对照",
+          "provider": "sciverse",
+          "hit_count": 2,
+          "top_hits": [
+            {
+              "title": "Embedding-based tone measurement in annual reports",
+              "year": 2023,
+              "doi": "10.1016/j.jacc.2023.0142",
+              "relevance": 0.41
+            },
+            {
+              "title": "语义向量与年报语气的单行业证据",
+              "year": null,
+              "doi": null,
+              "relevance": 0.33
+            }
+          ]
+        },
+        "biblio_structure": {
+          "metric": "cooccurrence_gap",
+          "value": 0.12,
+          "interpretation": "「语义嵌入语气」与「跨行业对照」两概念在共现网络中几乎不相邻（共现强度 0.12，低于断层阈值），存在结构洞。",
+          "source_view": "conceptual"
+        },
+        "gathered_by": "subagent",
+        "skipped": []
+      }
+    },
+    {
+      "gap_id": "g3",
+      "verdict": {
+        "gap_id": "g3",
+        "verdict": "likely_filled",
+        "score": 0.22,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+        "decided_by": "deterministic"
+      },
+      "evidence": {
+        "gap_id": "g3",
+        "reverse_search": {
+          "query": "语气操纵 真实盈余管理 替代关系 理论框架",
+          "provider": "openalex",
+          "hit_count": 41,
+          "top_hits": [
+            {
+              "title": "Tone management as a substitute for real earnings management",
+              "year": 2021,
+              "doi": "10.2308/accr-52910",
+              "relevance": 0.74
+            },
+            {
+              "title": "Narrative manipulation and earnings quality: a review",
+              "year": 2022,
+              "doi": "10.1111/1475-679X.12410",
+              "relevance": 0.69
+            },
+            {
+              "title": "语气操纵与盈余管理替代的经验证据",
+              "year": 2020,
+              "doi": null,
+              "relevance": 0.61
+            }
+          ]
+        },
+        "biblio_structure": {
+          "metric": "low_coupling",
+          "value": 0.58,
+          "interpretation": "两概念耦合度中等（0.58），非显著断层；结合高命中，结构未支持「真空白」。",
+          "source_view": "conceptual"
+        },
+        "gathered_by": "subagent",
+        "skipped": []
+      }
+    },
+    {
+      "gap_id": "g4",
+      "verdict": {
+        "gap_id": "g4",
+        "verdict": "valuable",
+        "score": 0.79,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+        "decided_by": "deterministic"
+      },
+      "evidence": {
+        "gap_id": "g4",
+        "reverse_search": {
+          "query": "文本语气异常 盈余质量 预警 中小板 有效性",
+          "provider": "sciverse",
+          "hit_count": 1,
+          "top_hits": [
+            {
+              "title": "Textual tone anomaly as an earnings-quality early warning",
+              "year": 2024,
+              "doi": "10.1016/j.bar.2024.101355",
+              "relevance": 0.38
+            }
+          ]
+        },
+        "biblio_structure": {
+          "metric": "cooccurrence_gap",
+          "value": 0.09,
+          "interpretation": "「文本语气异常」与「中小板盈余质量」两概念在共现网络中近乎不相邻（0.09），存在显著结构洞。",
+          "source_view": "conceptual"
+        },
+        "gathered_by": "subagent",
+        "skipped": []
+      }
+    },
+    {
+      "gap_id": "g5",
+      "verdict": {
+        "gap_id": "g5",
+        "verdict": "inconclusive",
+        "score": null,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索命中 11 篇（介于阈值 3–25 之间），且未检出明确共现断层 → 证据不足以判定，建议人工复核。",
+        "decided_by": "deterministic"
+      },
+      "evidence": {
+        "gap_id": "g5",
+        "reverse_search": {
+          "query": "文本语气异常 盈余质量 预警 中小板",
+          "provider": "openalex",
+          "hit_count": 11,
+          "top_hits": [
+            {
+              "title": "Abnormal tone and earnings quality signals",
+              "year": 2022,
+              "doi": "10.1016/j.jcorpfin.2022.102233",
+              "relevance": 0.52
+            },
+            {
+              "title": "中小板公司文本语气与盈余质量",
+              "year": null,
+              "doi": null,
+              "relevance": 0.4
+            }
+          ]
+        },
+        "biblio_structure": {
+          "metric": "low_coupling",
+          "value": 0.44,
+          "interpretation": "耦合度 0.44，未检出明确共现断层；结构证据不足以单独支持判定。",
+          "source_view": null
+        },
+        "gathered_by": "subagent",
+        "skipped": [
+          {
+            "reason": "OpenAlex 近 5 年过滤后候选不足，已跳过补充检索"
+          }
+        ]
+      }
+    }
+  ],
+  "gapDraftConcept": {
+    "gap_id": "g1",
+    "theme": "MD&A 文本特征与信息含量",
+    "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+    "lens": "concept",
+    "supporting_papers": [
+      {
+        "paper_id": 12,
+        "anchor_id": "p12_b3__occ1",
+        "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+      }
+    ],
+    "counter_evidence": [],
+    "confidence": 0.62,
+    "status": "draft",
+    "value_verdict": null
+  },
+  "gapVerifiedMethod": {
+    "gap_id": "g2",
+    "theme": "MD&A 文本特征与信息含量",
+    "statement": "基于深度语义嵌入度量 MD&A 语气的方法，尚未与传统词典法做跨行业对照。",
+    "lens": "method",
+    "supporting_papers": [
+      {
+        "paper_id": 7,
+        "anchor_id": "p7_b9__occ1",
+        "quote": "现有研究多依赖 LM 词典统计语气。"
+      },
+      {
+        "paper_id": 23,
+        "anchor_id": "p23_b2__occ1",
+        "quote": "嵌入式语义度量在单行业样本上表现更优。"
+      }
+    ],
+    "counter_evidence": [
+      {
+        "paper_id": 31,
+        "anchor_id": "p31_b5__occ1",
+        "note": "个别研究已尝试嵌入法，但样本受限于单一行业。"
+      }
+    ],
+    "confidence": 0.71,
+    "status": "verified",
+    "value_verdict": {
+      "gap_id": "g2",
+      "verdict": "valuable",
+      "score": 0.86,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+      "decided_by": "deterministic"
+    }
+  },
+  "gapVerifiedTheory": {
+    "gap_id": "g3",
+    "theme": "盈余管理识别与文本语气",
+    "statement": "管理层语气操纵与真实盈余管理之间的替代关系，缺乏统一的理论框架。",
+    "lens": "theory",
+    "supporting_papers": [
+      {
+        "paper_id": 4,
+        "anchor_id": "p4_b1__occ1",
+        "quote": "语气操纵可能替代应计盈余管理。"
+      }
+    ],
+    "counter_evidence": [],
+    "confidence": 0.55,
+    "status": "verified",
+    "value_verdict": {
+      "gap_id": "g3",
+      "verdict": "likely_filled",
+      "score": 0.22,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+      "decided_by": "deterministic"
+    }
+  },
+  "gapAcceptedConcept": {
+    "gap_id": "g4",
+    "theme": "盈余管理识别与文本语气",
+    "statement": "文本语气异常作为盈余质量预警指标，在中小板样本中的有效性尚未被评估。",
+    "lens": "concept",
+    "supporting_papers": [
+      {
+        "paper_id": 9,
+        "anchor_id": "p9_b7__occ1",
+        "quote": "语气异常与后续盈余下调存在相关性。"
+      }
+    ],
+    "counter_evidence": [],
+    "confidence": 0.68,
+    "status": "accepted",
+    "value_verdict": {
+      "gap_id": "g4",
+      "verdict": "valuable",
+      "score": 0.79,
+      "thresholds": {
+        "reverse_hit_high": 25,
+        "reverse_hit_low": 3
+      },
+      "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+      "decided_by": "deterministic"
+    }
+  },
+  "gapDraftMethod": {
+    "gap_id": "g5",
+    "theme": "盈余管理识别与文本语气",
+    "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+    "lens": "method",
+    "supporting_papers": [
+      {
+        "paper_id": 9,
+        "anchor_id": "p9_b11__occ1",
+        "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+      }
+    ],
+    "counter_evidence": [],
+    "confidence": 0.48,
+    "status": "draft",
+    "value_verdict": null
+  },
+  "ALL_GAPS": [
+    {
+      "gap_id": "g1",
+      "theme": "MD&A 文本特征与信息含量",
+      "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+      "lens": "concept",
+      "supporting_papers": [
+        {
+          "paper_id": 12,
+          "anchor_id": "p12_b3__occ1",
+          "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+        }
+      ],
+      "counter_evidence": [],
+      "confidence": 0.62,
+      "status": "draft",
+      "value_verdict": null
+    },
+    {
+      "gap_id": "g2",
+      "theme": "MD&A 文本特征与信息含量",
+      "statement": "基于深度语义嵌入度量 MD&A 语气的方法，尚未与传统词典法做跨行业对照。",
+      "lens": "method",
+      "supporting_papers": [
+        {
+          "paper_id": 7,
+          "anchor_id": "p7_b9__occ1",
+          "quote": "现有研究多依赖 LM 词典统计语气。"
+        },
+        {
+          "paper_id": 23,
+          "anchor_id": "p23_b2__occ1",
+          "quote": "嵌入式语义度量在单行业样本上表现更优。"
+        }
+      ],
+      "counter_evidence": [
+        {
+          "paper_id": 31,
+          "anchor_id": "p31_b5__occ1",
+          "note": "个别研究已尝试嵌入法，但样本受限于单一行业。"
+        }
+      ],
+      "confidence": 0.71,
+      "status": "verified",
+      "value_verdict": {
+        "gap_id": "g2",
+        "verdict": "valuable",
+        "score": 0.86,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+        "decided_by": "deterministic"
+      }
+    },
+    {
+      "gap_id": "g3",
+      "theme": "盈余管理识别与文本语气",
+      "statement": "管理层语气操纵与真实盈余管理之间的替代关系，缺乏统一的理论框架。",
+      "lens": "theory",
+      "supporting_papers": [
+        {
+          "paper_id": 4,
+          "anchor_id": "p4_b1__occ1",
+          "quote": "语气操纵可能替代应计盈余管理。"
+        }
+      ],
+      "counter_evidence": [],
+      "confidence": 0.55,
+      "status": "verified",
+      "value_verdict": {
+        "gap_id": "g3",
+        "verdict": "likely_filled",
+        "score": 0.22,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+        "decided_by": "deterministic"
+      }
+    },
+    {
+      "gap_id": "g4",
+      "theme": "盈余管理识别与文本语气",
+      "statement": "文本语气异常作为盈余质量预警指标，在中小板样本中的有效性尚未被评估。",
+      "lens": "concept",
+      "supporting_papers": [
+        {
+          "paper_id": 9,
+          "anchor_id": "p9_b7__occ1",
+          "quote": "语气异常与后续盈余下调存在相关性。"
+        }
+      ],
+      "counter_evidence": [],
+      "confidence": 0.68,
+      "status": "accepted",
+      "value_verdict": {
+        "gap_id": "g4",
+        "verdict": "valuable",
+        "score": 0.79,
+        "thresholds": {
+          "reverse_hit_high": 25,
+          "reverse_hit_low": 3
+        },
+        "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+        "decided_by": "deterministic"
+      }
+    },
+    {
+      "gap_id": "g5",
+      "theme": "盈余管理识别与文本语气",
+      "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+      "lens": "method",
+      "supporting_papers": [
+        {
+          "paper_id": 9,
+          "anchor_id": "p9_b11__occ1",
+          "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+        }
+      ],
+      "counter_evidence": [],
+      "confidence": 0.48,
+      "status": "draft",
+      "value_verdict": null
+    }
+  ],
+  "scratchpadState": {
+    "run_id": "run_gap_001",
+    "run_status": "done",
+    "entries": [
+      {
+        "gap_id": "g1",
+        "theme": "MD&A 文本特征与信息含量",
+        "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+        "lens": "concept",
+        "supporting_papers": [
+          {
+            "paper_id": 12,
+            "anchor_id": "p12_b3__occ1",
+            "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+          }
+        ],
+        "counter_evidence": [],
+        "confidence": 0.62,
+        "status": "draft",
+        "value_verdict": null
+      },
+      {
+        "gap_id": "g2",
+        "theme": "MD&A 文本特征与信息含量",
+        "statement": "基于深度语义嵌入度量 MD&A 语气的方法，尚未与传统词典法做跨行业对照。",
+        "lens": "method",
+        "supporting_papers": [
+          {
+            "paper_id": 7,
+            "anchor_id": "p7_b9__occ1",
+            "quote": "现有研究多依赖 LM 词典统计语气。"
+          },
+          {
+            "paper_id": 23,
+            "anchor_id": "p23_b2__occ1",
+            "quote": "嵌入式语义度量在单行业样本上表现更优。"
+          }
+        ],
+        "counter_evidence": [
+          {
+            "paper_id": 31,
+            "anchor_id": "p31_b5__occ1",
+            "note": "个别研究已尝试嵌入法，但样本受限于单一行业。"
+          }
+        ],
+        "confidence": 0.71,
+        "status": "verified",
+        "value_verdict": {
+          "gap_id": "g2",
+          "verdict": "valuable",
+          "score": 0.86,
+          "thresholds": {
+            "reverse_hit_high": 25,
+            "reverse_hit_low": 3
+          },
+          "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+          "decided_by": "deterministic"
+        }
+      },
+      {
+        "gap_id": "g3",
+        "theme": "盈余管理识别与文本语气",
+        "statement": "管理层语气操纵与真实盈余管理之间的替代关系，缺乏统一的理论框架。",
+        "lens": "theory",
+        "supporting_papers": [
+          {
+            "paper_id": 4,
+            "anchor_id": "p4_b1__occ1",
+            "quote": "语气操纵可能替代应计盈余管理。"
+          }
+        ],
+        "counter_evidence": [],
+        "confidence": 0.55,
+        "status": "verified",
+        "value_verdict": {
+          "gap_id": "g3",
+          "verdict": "likely_filled",
+          "score": 0.22,
+          "thresholds": {
+            "reverse_hit_high": 25,
+            "reverse_hit_low": 3
+          },
+          "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+          "decided_by": "deterministic"
+        }
+      },
+      {
+        "gap_id": "g4",
+        "theme": "盈余管理识别与文本语气",
+        "statement": "文本语气异常作为盈余质量预警指标，在中小板样本中的有效性尚未被评估。",
+        "lens": "concept",
+        "supporting_papers": [
+          {
+            "paper_id": 9,
+            "anchor_id": "p9_b7__occ1",
+            "quote": "语气异常与后续盈余下调存在相关性。"
+          }
+        ],
+        "counter_evidence": [],
+        "confidence": 0.68,
+        "status": "accepted",
+        "value_verdict": {
+          "gap_id": "g4",
+          "verdict": "valuable",
+          "score": 0.79,
+          "thresholds": {
+            "reverse_hit_high": 25,
+            "reverse_hit_low": 3
+          },
+          "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+          "decided_by": "deterministic"
+        }
+      },
+      {
+        "gap_id": "g5",
+        "theme": "盈余管理识别与文本语气",
+        "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+        "lens": "method",
+        "supporting_papers": [
+          {
+            "paper_id": 9,
+            "anchor_id": "p9_b11__occ1",
+            "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+          }
+        ],
+        "counter_evidence": [],
+        "confidence": 0.48,
+        "status": "draft",
+        "value_verdict": null
+      }
+    ],
+    "updated_at": "2026-06-16T03:14:07Z"
+  },
+  "discoverAccepted": {
+    "run_id": "run_gap_001"
+  },
+  "verifyAccepted": {
+    "verify_run_id": "run_verify_001"
+  },
+  "SCRATCHPAD_TICKS": [
+    {
+      "run_id": "run_gap_001",
+      "run_status": "running",
+      "entries": [
+        {
+          "gap_id": "g1",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+          "lens": "concept",
+          "supporting_papers": [
+            {
+              "paper_id": 12,
+              "anchor_id": "p12_b3__occ1",
+              "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.62,
+          "status": "draft",
+          "value_verdict": null
+        }
+      ],
+      "updated_at": "2026-06-16T03:14:01Z"
+    },
+    {
+      "run_id": "run_gap_001",
+      "run_status": "running",
+      "entries": [
+        {
+          "gap_id": "g1",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+          "lens": "concept",
+          "supporting_papers": [
+            {
+              "paper_id": 12,
+              "anchor_id": "p12_b3__occ1",
+              "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.62,
+          "status": "draft",
+          "value_verdict": null
+        },
+        {
+          "gap_id": "g5",
+          "theme": "盈余管理识别与文本语气",
+          "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+          "lens": "method",
+          "supporting_papers": [
+            {
+              "paper_id": 9,
+              "anchor_id": "p9_b11__occ1",
+              "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.48,
+          "status": "draft",
+          "value_verdict": null
+        }
+      ],
+      "updated_at": "2026-06-16T03:14:03Z"
+    },
+    {
+      "run_id": "run_gap_001",
+      "run_status": "running",
+      "entries": [
+        {
+          "gap_id": "g1",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+          "lens": "concept",
+          "supporting_papers": [
+            {
+              "paper_id": 12,
+              "anchor_id": "p12_b3__occ1",
+              "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.62,
+          "status": "draft",
+          "value_verdict": null
+        },
+        {
+          "gap_id": "g2",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "基于深度语义嵌入度量 MD&A 语气的方法，尚未与传统词典法做跨行业对照。",
+          "lens": "method",
+          "supporting_papers": [
+            {
+              "paper_id": 7,
+              "anchor_id": "p7_b9__occ1",
+              "quote": "现有研究多依赖 LM 词典统计语气。"
+            },
+            {
+              "paper_id": 23,
+              "anchor_id": "p23_b2__occ1",
+              "quote": "嵌入式语义度量在单行业样本上表现更优。"
+            }
+          ],
+          "counter_evidence": [
+            {
+              "paper_id": 31,
+              "anchor_id": "p31_b5__occ1",
+              "note": "个别研究已尝试嵌入法，但样本受限于单一行业。"
+            }
+          ],
+          "confidence": 0.71,
+          "status": "verified",
+          "value_verdict": {
+            "gap_id": "g2",
+            "verdict": "valuable",
+            "score": 0.86,
+            "thresholds": {
+              "reverse_hit_high": 25,
+              "reverse_hit_low": 3
+            },
+            "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+            "decided_by": "deterministic"
+          }
+        },
+        {
+          "gap_id": "g5",
+          "theme": "盈余管理识别与文本语气",
+          "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+          "lens": "method",
+          "supporting_papers": [
+            {
+              "paper_id": 9,
+              "anchor_id": "p9_b11__occ1",
+              "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.48,
+          "status": "draft",
+          "value_verdict": null
+        }
+      ],
+      "updated_at": "2026-06-16T03:14:05Z"
+    },
+    {
+      "run_id": "run_gap_001",
+      "run_status": "done",
+      "entries": [
+        {
+          "gap_id": "g1",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "MD&A 文本可读性与分析师预测分歧的关系，在高科技行业情境下尚未被系统检验。",
+          "lens": "concept",
+          "supporting_papers": [
+            {
+              "paper_id": 12,
+              "anchor_id": "p12_b3__occ1",
+              "quote": "可读性较低的 MD&A 与更大的分析师预测分歧相关。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.62,
+          "status": "draft",
+          "value_verdict": null
+        },
+        {
+          "gap_id": "g2",
+          "theme": "MD&A 文本特征与信息含量",
+          "statement": "基于深度语义嵌入度量 MD&A 语气的方法，尚未与传统词典法做跨行业对照。",
+          "lens": "method",
+          "supporting_papers": [
+            {
+              "paper_id": 7,
+              "anchor_id": "p7_b9__occ1",
+              "quote": "现有研究多依赖 LM 词典统计语气。"
+            },
+            {
+              "paper_id": 23,
+              "anchor_id": "p23_b2__occ1",
+              "quote": "嵌入式语义度量在单行业样本上表现更优。"
+            }
+          ],
+          "counter_evidence": [
+            {
+              "paper_id": 31,
+              "anchor_id": "p31_b5__occ1",
+              "note": "个别研究已尝试嵌入法，但样本受限于单一行业。"
+            }
+          ],
+          "confidence": 0.71,
+          "status": "verified",
+          "value_verdict": {
+            "gap_id": "g2",
+            "verdict": "valuable",
+            "score": 0.86,
+            "thresholds": {
+              "reverse_hit_high": 25,
+              "reverse_hit_low": 3
+            },
+            "rationale": "反向检索仅 2 篇强相关（≤ 阈值 3），且 conceptual 网络中两核心概念存在共现断层（structural_hole=true）→ 判定为真空白、有研究价值。",
+            "decided_by": "deterministic"
+          }
+        },
+        {
+          "gap_id": "g3",
+          "theme": "盈余管理识别与文本语气",
+          "statement": "管理层语气操纵与真实盈余管理之间的替代关系，缺乏统一的理论框架。",
+          "lens": "theory",
+          "supporting_papers": [
+            {
+              "paper_id": 4,
+              "anchor_id": "p4_b1__occ1",
+              "quote": "语气操纵可能替代应计盈余管理。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.55,
+          "status": "verified",
+          "value_verdict": {
+            "gap_id": "g3",
+            "verdict": "likely_filled",
+            "score": 0.22,
+            "thresholds": {
+              "reverse_hit_high": 25,
+              "reverse_hit_low": 3
+            },
+            "rationale": "反向检索命中 41 篇强相关（≥ 阈值 25）→ 该方向已有大量研究，疑为检索不全造成的伪空白，价值存疑。",
+            "decided_by": "deterministic"
+          }
+        },
+        {
+          "gap_id": "g4",
+          "theme": "盈余管理识别与文本语气",
+          "statement": "文本语气异常作为盈余质量预警指标，在中小板样本中的有效性尚未被评估。",
+          "lens": "concept",
+          "supporting_papers": [
+            {
+              "paper_id": 9,
+              "anchor_id": "p9_b7__occ1",
+              "quote": "语气异常与后续盈余下调存在相关性。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.68,
+          "status": "accepted",
+          "value_verdict": {
+            "gap_id": "g4",
+            "verdict": "valuable",
+            "score": 0.79,
+            "thresholds": {
+              "reverse_hit_high": 25,
+              "reverse_hit_low": 3
+            },
+            "rationale": "反向检索 1 篇强相关（≤ 阈值 3），且 conceptual 网络存在共现断层 → 真空白；已经人工 accept 定稿。",
+            "decided_by": "deterministic"
+          }
+        },
+        {
+          "gap_id": "g5",
+          "theme": "盈余管理识别与文本语气",
+          "statement": "用文本语气异常构建盈余质量预警模型的方法，在中小板样本上的稳健性未被验证。",
+          "lens": "method",
+          "supporting_papers": [
+            {
+              "paper_id": 9,
+              "anchor_id": "p9_b11__occ1",
+              "quote": "现有预警模型多基于财务比率，少有纳入文本语气。"
+            }
+          ],
+          "counter_evidence": [],
+          "confidence": 0.48,
+          "status": "draft",
+          "value_verdict": null
+        }
+      ],
+      "updated_at": "2026-06-16T03:14:07Z"
+    }
+  ]
+}

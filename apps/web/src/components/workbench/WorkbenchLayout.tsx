@@ -9,11 +9,13 @@
  *   - ④ 下游应用保留"综述/分析/导出"可达入口（降为 link，不删）。
  *   - 视觉复用现有纸/墨/朱砂设计系统，新增类一律 wb- 前缀，零覆盖既有类。
  */
+import type React from "react";
 import { Link } from "react-router-dom";
 import { ProjectsPage } from "../../pages/ProjectsPage";
 import { TrustBadgeStrip } from "../TrustBadgeStrip";
 import { QualityPanel } from "../quality/QualityPanel";
 import { useProjects } from "../../api/agentHooks";
+import { ErrMsg, Loading } from "../../lib/ui";
 
 /** 语料生产线四段（印章序号 + 标题 + 副文案 + 锚点 id） */
 const STAGES = [
@@ -37,12 +39,18 @@ function scrollToStage(id: string) {
 }
 
 export function WorkbenchLayout() {
-  const { data } = useProjects();
+  const { data, isLoading, isFetching, error, refetch } = useProjects();
   // ④ 下游入口的深链目标：取最近一个项目；无项目时回落到 ① 导入段引导先建项目。
   const latestPid = data?.projects?.[0]?.id;
+  const projectsPending = isLoading && !data;
+  const projectsFailed = !!error && !data;
   const reviewHref = latestPid ? `/projects/${latestPid}/analysis/review` : undefined;
   const analysisHref = latestPid ? `/projects/${latestPid}/analysis/overview` : undefined;
   const outputHref = latestPid ? `/projects/${latestPid}/output` : undefined;
+
+  function retryProjects() {
+    void refetch();
+  }
 
   return (
     <div className="container wb-shell">
@@ -122,7 +130,22 @@ export function WorkbenchLayout() {
         </div>
         <div className="ql-corpus-grid">
           {/* 质量：最近项目的语料质检（后端未生成时静默降级，不打断） */}
-          {latestPid ? (
+          {projectsPending ? (
+            <ProjectStateCard>
+              <Loading label="加载最近项目…" />
+            </ProjectStateCard>
+          ) : projectsFailed ? (
+            <ProjectStateCard>
+              <ErrMsg
+                error={error}
+                action={(
+                  <button type="button" className="btn" onClick={retryProjects} disabled={isFetching}>
+                    {isFetching ? "重试中…" : "重试"}
+                  </button>
+                )}
+              />
+            </ProjectStateCard>
+          ) : latestPid ? (
             <QualityPanel projectId={latestPid} />
           ) : (
             <div className="card ql-panel muted">创建项目并加工语料后，这里展示语料质检（缺字段 / 重复 / 未解析）。</div>
@@ -141,29 +164,65 @@ export function WorkbenchLayout() {
         <div className="wb-zone-head">
           <span className="wb-zone-seal" aria-hidden="true">四</span>
           <h2 className="wb-zone-title" id="wb-app-head">下游应用</h2>
-          <p className="wb-zone-sub">在可信语料之上展开应用。{latestPid ? "已为你链到最近的项目。" : "先在「① 导入文档」创建项目，应用入口随即可用。"}</p>
+          <p className="wb-zone-sub">
+            在可信语料之上展开应用。
+            {projectsPending
+              ? "正在加载项目入口。"
+              : projectsFailed
+                ? "项目列表加载失败，重试后可恢复应用入口。"
+                : latestPid
+                  ? "已为你链到最近的项目。"
+                  : "先在「① 导入文档」创建项目，应用入口随即可用。"}
+          </p>
         </div>
         <div className="wb-downstream">
-          <DownstreamCard
-            title="AI 综述"
-            desc="逐句可回链原文的可溯源综述"
-            href={reviewHref}
-            fallbackId="wb-import"
-          />
-          <DownstreamCard
-            title="文献计量分析"
-            desc="领域概览 · 主题地图 · 合作网络"
-            href={analysisHref}
-            fallbackId="wb-import"
-          />
-          <DownstreamCard
-            title="导出报告"
-            desc="Markdown / HTML 报告与引用列表"
-            href={outputHref}
-            fallbackId="wb-import"
-          />
+          {projectsPending ? (
+            <ProjectStateCard>
+              <Loading label="加载应用入口…" />
+            </ProjectStateCard>
+          ) : projectsFailed ? (
+            <ProjectStateCard>
+              <ErrMsg
+                error={error}
+                action={(
+                  <button type="button" className="btn" onClick={retryProjects} disabled={isFetching}>
+                    {isFetching ? "重试中…" : "重试"}
+                  </button>
+                )}
+              />
+            </ProjectStateCard>
+          ) : (
+            <>
+              <DownstreamCard
+                title="AI 综述"
+                desc="逐句可回链原文的可溯源综述"
+                href={reviewHref}
+                fallbackId="wb-import"
+              />
+              <DownstreamCard
+                title="文献计量分析"
+                desc="领域概览 · 主题地图 · 合作网络"
+                href={analysisHref}
+                fallbackId="wb-import"
+              />
+              <DownstreamCard
+                title="导出报告"
+                desc="Markdown / HTML 报告与引用列表"
+                href={outputHref}
+                fallbackId="wb-import"
+              />
+            </>
+          )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ProjectStateCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="card ql-panel" style={{ gridColumn: "1 / -1" }}>
+      {children}
     </div>
   );
 }

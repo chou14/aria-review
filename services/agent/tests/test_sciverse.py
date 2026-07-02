@@ -1,6 +1,7 @@
 from starlette.datastructures import Headers
 from starlette.requests import Request
 
+import httpx
 import pytest
 
 from app import main as app_main
@@ -11,7 +12,7 @@ from app.schemas import (
     SciverseMetaSearchRequest,
     SciverseSettingsPayload,
 )
-from app.sciverse import sciverse_config, normalize_meta_result
+from app.sciverse import SciverseClient, sciverse_config, normalize_meta_result
 
 
 def _request(headers: dict[str, str] | None = None) -> Request:
@@ -79,6 +80,27 @@ def test_sciverse_config_accepts_bearer_prefixed_token():
 
     assert cfg.base_url == "https://api.sciverse.space"
     assert cfg.api_token == "token-123"
+
+
+@pytest.mark.asyncio
+async def test_sciverse_client_unavailable_message_includes_address_and_reason():
+    """Sciverse token 已配置但连接失败时，错误文案应指向网络/服务排查。"""
+
+    class BrokenAsyncClient:
+        async def request(self, method, path, headers=None, **kwargs):
+            raise httpx.ConnectError("Connection refused")
+
+    cfg = sciverse_config("https://api.sciverse.space", "token-123")
+    client = SciverseClient(cfg, client=BrokenAsyncClient())
+
+    with pytest.raises(ApiError) as exc:
+        await client.meta_search(query="bibliometrics")
+
+    assert exc.value.code == "SCIVERSE_UNAVAILABLE"
+    assert "Sciverse 服务不可达" in exc.value.message
+    assert "地址: https://api.sciverse.space" in exc.value.message
+    assert "连接失败" in exc.value.message
+    assert "Connection refused" in exc.value.message
 
 
 def test_sciverse_config_rejects_private_base_url():

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import AiJob
+from ..run_status import normalize_run_status
 
 
 async def create_job(
@@ -67,7 +68,7 @@ async def update_job(
     complete: bool = False,
 ) -> AiJob:
     if status is not None:
-        job.status = status
+        job.status = normalize_run_status(status)
     if result_text is not None:
         job.result_text = result_text
     if annotated_text is not None:
