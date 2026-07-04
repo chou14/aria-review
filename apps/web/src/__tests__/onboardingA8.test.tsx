@@ -104,11 +104,11 @@ describe("NextStepGuide 下一步行动卡", () => {
     );
   }
 
-  it("paperCount===0 → 导入文献，CTA 跳文献库", () => {
+  it("paperCount===0 → 检索建库，CTA 跳对话首页", () => {
     renderGuide({ paperCount: 0, includedCount: 0, activeCorpus: null });
-    expect(screen.getByText("导入第一批文献")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /前往文献库导入/ }));
-    expect(screen.getByTestId("location").textContent).toBe("/projects/7/library");
+    expect(screen.getByText("让 AI 帮你检索文献建库")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /去对话检索建库/ }));
+    expect(screen.getByTestId("location").textContent).toBe("/projects/7");
   });
 
   it("有文献无纳入 → 筛选纳入，CTA 跳文献库", () => {
@@ -135,7 +135,7 @@ describe("NextStepGuide 下一步行动卡", () => {
   it("点「稍后」关闭，且写 sessionStorage", () => {
     renderGuide({ paperCount: 0, includedCount: 0, activeCorpus: null });
     fireEvent.click(screen.getByRole("button", { name: /关闭下一步建议/ }));
-    expect(screen.queryByText("导入第一批文献")).toBeNull();
+    expect(screen.queryByText("让 AI 帮你检索文献建库")).toBeNull();
     let stored: string | null = null;
     try { stored = sessionStorage.getItem("bibliocn.nextstep.dismissed.7"); } catch { /* noop */ }
     expect(stored).toBe("1");
@@ -148,7 +148,7 @@ describe("NextStepGuide 下一步行动卡", () => {
         <NextStepGuide projectId={9} stats={{ paperCount: 0, includedCount: 0, activeCorpus: null }} />
       </MemoryRouter>,
     );
-    expect(screen.queryByText("导入第一批文献")).toBeNull();
+    expect(screen.queryByText("让 AI 帮你检索文献建库")).toBeNull();
   });
 });
 

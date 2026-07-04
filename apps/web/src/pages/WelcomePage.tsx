@@ -10,6 +10,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
+import { getPublicStats, type PublicStats } from "../api/client";
 import "../welcome.css";
 
 const GITHUB_URL = "https://github.com/niuniu-869/aria-review";
@@ -90,6 +91,7 @@ export function WelcomePage() {
   const { isAuthenticated } = useAuth();
   const [cite, setCite] = useState<CiteKey>("1");
   const [scrolled, setScrolled] = useState(false);
+  const [stats, setStats] = useState<PublicStats | null>(null);
   useReveal();
 
   useEffect(() => {
@@ -97,6 +99,15 @@ export function WelcomePage() {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // 着陆页数字实时取自 /public/stats（免认证）；失败则用静态回退值，不空白。
+  useEffect(() => {
+    let alive = true;
+    getPublicStats()
+      .then((s) => { if (alive) setStats(s); })
+      .catch(() => { /* 回退到静态值 */ });
+    return () => { alive = false; };
   }, []);
 
   function scrollToFilm(e: MouseEvent<HTMLAnchorElement>) {
@@ -405,16 +416,16 @@ export function WelcomePage() {
         <div className="wel-inner">
           <div className="wel-stats-row" data-reveal>
             <div className="wel-stat">
-              <span className="wel-stat-num">970</span>
-              <span className="wel-stat-label">篇全文精读入综述</span>
+              <span className="wel-stat-num">{(stats?.papers ?? 469).toLocaleString()}</span>
+              <span className="wel-stat-label">篇文献结构化入库</span>
             </div>
             <div className="wel-stat">
-              <span className="wel-stat-num">1512</span>
+              <span className="wel-stat-num">{(stats?.blockAnchors ?? 8007).toLocaleString()}</span>
               <span className="wel-stat-label">条块级溯源锚点</span>
             </div>
             <div className="wel-stat">
-              <span className="wel-stat-num">0</span>
-              <span className="wel-stat-label">伪造引用放行</span>
+              <span className="wel-stat-num">{(stats?.dois ?? 461).toLocaleString()}</span>
+              <span className="wel-stat-label">DOI 精准贯通</span>
             </div>
           </div>
           <p className="wel-stats-note" data-reveal>以上数字来自真实运行，分母按真实文档对象计算。</p>

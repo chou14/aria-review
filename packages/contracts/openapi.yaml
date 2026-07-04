@@ -24,6 +24,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Health'
+  /public/stats:
+    get:
+      operationId: getPublicStats
+      summary: 公开着陆页统计（免认证）
+      tags:
+      - meta
+      responses:
+        '200':
+          description: 真实入库规模
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStats'
   /projects/{projectId}/corpus:
     post:
       operationId: createCorpus
@@ -2493,6 +2506,22 @@ components:
         minLength: 8
         maxLength: 128
   schemas:
+    PublicStats:
+      type: object
+      required:
+      - papers
+      - blockAnchors
+      - dois
+      properties:
+        papers:
+          type: integer
+          description: 入库文献总数
+        blockAnchors:
+          type: integer
+          description: 块级溯源锚点数（全文精读文档的块总数）
+        dois:
+          type: integer
+          description: 去重 DOI 数
     Health:
       type: object
       required:
@@ -4620,6 +4649,10 @@ components:
         title:
           type: string
           nullable: true
+        containerTitle:
+          type: string
+          nullable: true
+          description: 期刊/来源名（container_title）；PDF 导入常为空
         year:
           type: integer
           nullable: true
@@ -5412,6 +5445,12 @@ components:
           - type: string
           - type: 'null'
           title: Title
+        containerTitle:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Containertitle
+          description: 期刊/来源名（container_title）；PDF 导入常为空
         creators:
           items: {}
           type: array

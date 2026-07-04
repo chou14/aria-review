@@ -45,6 +45,13 @@ class Health(BaseModel):
     rService: str  # up | down | unknown
 
 
+class PublicStats(BaseModel):
+    """公开着陆页统计（免认证）：真实入库规模，用于 welcome 展示。"""
+    papers: int = Field(ge=0)          # 入库文献总数
+    blockAnchors: int = Field(ge=0)    # 块级溯源锚点数（全文精读文档的块总数）
+    dois: int = Field(ge=0)            # 去重 DOI 数
+
+
 class AnnualPoint(BaseModel):
     year: int
     articles: int = Field(ge=0)
@@ -660,6 +667,7 @@ class ProjectDetail(BaseModel):
 class ProjectPaperItem(BaseModel):
     paperId: int
     title: str | None = None
+    containerTitle: str | None = None
     year: int | None = None
     inclusionStatus: InclusionStatus
     screeningScore: int | None = None
@@ -681,6 +689,7 @@ class PaperExtractionDto(BaseModel):
 class PaperDetail(BaseModel):
     paperId: int
     title: str | None = None
+    containerTitle: str | None = None
     creators: list = Field(default_factory=list)
     doi: str | None = None
     abstract: str | None = None

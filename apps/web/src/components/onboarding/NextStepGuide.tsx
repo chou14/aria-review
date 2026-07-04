@@ -47,11 +47,11 @@ function deriveAdvice(stats: NextStepStats | null | undefined): StepAdvice {
 
   if (paperCount === 0) {
     return {
-      badge: "第 1 步 · 导入",
-      title: "导入第一批文献",
-      why: "上传 PDF/ZIP 或检索文献到文献库，这是综述的起点。",
-      cta: "前往文献库导入",
-      to: "library",
+      badge: "第 1 步 · 建库",
+      title: "让 AI 帮你检索文献建库",
+      why: "在下方对话输入研究主题（如「深度学习 医学影像」），AI 会检索出候选文献，你确认后一键加入文献库——无需自己找 PDF。也可去文献库上传已有 PDF/ZIP。",
+      cta: "去对话检索建库",
+      to: "",
     };
   }
   if (includedCount === 0) {

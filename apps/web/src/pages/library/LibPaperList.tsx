@@ -379,6 +379,8 @@ export function LibPaperList({
         <button className="lib-col-sort" onClick={() => onSort("title")}>
           标题 <SortIcon field="title" sortField={sortField} sortDir={sortDir} />
         </button>
+        {/* 期刊/来源列 */}
+        <span>期刊</span>
         {/* 年份列 */}
         <button className="lib-col-sort" onClick={() => onSort("year")}>
           年份 <SortIcon field="year" sortField={sortField} sortDir={sortDir} />
@@ -397,7 +399,8 @@ export function LibPaperList({
           <div className="lib-empty">
             <p>暂无文献</p>
             <p style={{ fontSize: "0.82rem" }}>
-              请点击「导入文献」或通过 Agent 对话导入
+              在 AI 对话中输入研究主题，AI 检索出候选、你确认后加入文献库（无需自己找 PDF）；
+              或点「导入文献」上传已有 PDF/ZIP。
             </p>
           </div>
         ) : (
@@ -452,6 +455,19 @@ export function LibPaperList({
                   >
                     {p.title || "（无标题）"}
                   </span>
+                  {/* 期刊/来源 */}
+                  <span
+                    className="muted"
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      fontSize: "0.82rem",
+                    }}
+                    title={p.containerTitle ?? undefined}
+                  >
+                    {p.containerTitle || "—"}
+                  </span>
                   {/* 年份 */}
                   <span className="tnum muted" style={{ fontSize: "0.82rem" }}>
                     {p.year ?? "—"}
@@ -460,15 +476,17 @@ export function LibPaperList({
                   <span className="tnum muted" style={{ fontSize: "0.82rem" }}>
                     {p.screeningScore != null ? p.screeningScore.toFixed(0) : "—"}
                   </span>
-                  {/* PDF/OCR/元数据状态徽章（Task 6） */}
-                  <PaperStatusBadges
-                    hasPdf={p.hasPdf}
-                    ocrStatus={p.ocrStatus}
-                    sciverseDocId={p.sciverseDocId}
-                    hasReadableFulltext={p.hasReadableFulltext ?? p.hasFulltext ?? p.fulltextAvailable}
-                  />
-                  {/* 纳排状态徽章 */}
-                  <StatusBadge status={p.inclusionStatus as InclusionStatus} />
+                  {/* 状态列：PDF/OCR/元数据徽章 + 纳排徽章 收进同一 grid 列，
+                      避免第 7 个子元素溢出到隐式列导致行错位（codex P1-3 审阅）。 */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", overflow: "hidden" }}>
+                    <PaperStatusBadges
+                      hasPdf={p.hasPdf}
+                      ocrStatus={p.ocrStatus}
+                      sciverseDocId={p.sciverseDocId}
+                      hasReadableFulltext={p.hasReadableFulltext ?? p.hasFulltext ?? p.fulltextAvailable}
+                    />
+                    <StatusBadge status={p.inclusionStatus as InclusionStatus} />
+                  </div>
                 </div>
               );
             })}

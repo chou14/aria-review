@@ -204,6 +204,9 @@ export function LibPaperDetail({ pid, paperId, onBack }: Props) {
         {data.creators && data.creators.length > 0 && (
           <div>{formatCreators(data.creators as Creator[])}</div>
         )}
+        {data.containerTitle && (
+          <div style={{ fontStyle: "italic", color: "var(--ink-2)" }}>{data.containerTitle}</div>
+        )}
         {data.doi && (
           <div>
             DOI:{" "}

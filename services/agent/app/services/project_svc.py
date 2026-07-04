@@ -241,6 +241,7 @@ async def list_project_papers_dto(s: AsyncSession, project_id: int) -> list[dict
         {
             "paperId": paper.id,
             "title": paper.title,
+            "containerTitle": paper.container_title,
             "year": paper.year,
             "inclusionStatus": pp.inclusion_status,
             "screeningScore": pp.screening_score,
@@ -300,6 +301,7 @@ async def get_paper_detail_dto(
         "hasReadableFulltext": md_att is not None,
         "paperId": paper.id,
         "title": paper.title,
+        "containerTitle": paper.container_title,
         "creators": paper.creators or [],
         "doi": paper.doi,
         "abstract": paper.abstract,

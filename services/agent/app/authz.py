@@ -44,7 +44,7 @@ async def get_owned_project(
 # （§8.2 头号越权风险）。豁免公开路径；测试经 dependency_overrides[global_guard] 放行。
 # ---------------------------------------------------------------------------
 
-_EXEMPT_EXACT = frozenset({"/healthz", "/docs", "/openapi.json", "/redoc"})
+_EXEMPT_EXACT = frozenset({"/healthz", "/public/stats", "/docs", "/openapi.json", "/redoc"})
 _EXEMPT_PREFIXES = ("/auth/", "/ai/assets/")
 
 

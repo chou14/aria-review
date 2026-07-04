@@ -110,6 +110,7 @@ from .schemas import (
     OverviewResult,
     PaperDetail,
     PapersImportResponse,
+    PublicStats,
     PrismaRequest,
     PrismaResult,
     ProjectCreateRequest,
@@ -293,7 +294,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="BiblioCN agent", version="0.3.0", lifespan=lifespan,
+    title="BiblioCN agent", version="0.4.0", lifespan=lifespan,
     dependencies=[Depends(global_guard)],  # 全局守卫：认证 + project 归属（Round 5）
 )
 app.add_middleware(
@@ -347,6 +348,24 @@ async def healthz(r: RClient = Depends(get_r_client)) -> Health:
         # 近期健康过 → 当前多半只是被检索阻塞，不翻 down（避免误报"部分不可用"）
         up = True
     return Health(status="ok", service="agent", rService="up" if up else "down")
+
+
+@app.get("/public/stats", response_model=PublicStats)
+async def public_stats(s=Depends(get_session)) -> PublicStats:
+    """公开着陆页统计（authz 豁免，免认证）：真实入库规模，用于 welcome 页展示。"""
+    from sqlalchemy import distinct, func, select
+    from .models import DocumentStructure, Paper
+    papers = await s.scalar(select(func.count()).select_from(Paper)) or 0
+    dois = await s.scalar(
+        select(func.count(distinct(Paper.doi))).where(
+            Paper.doi.isnot(None), Paper.doi != "")
+    ) or 0
+    blocks = await s.scalar(
+        select(func.coalesce(
+            func.sum(func.json_array_length(DocumentStructure.content_list)), 0)
+        ).where(DocumentStructure.content_list.isnot(None))
+    ) or 0
+    return PublicStats(papers=int(papers), blockAnchors=int(blocks), dois=int(dois))
 
 
 @app.post("/projects/{project_id}/corpus")

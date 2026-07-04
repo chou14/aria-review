@@ -266,6 +266,17 @@ export async function getHealth(): Promise<Health> {
   return handle<Health>(await doFetch(`${BASE}/healthz`));
 }
 
+export interface PublicStats {
+  papers: number;
+  blockAnchors: number;
+  dois: number;
+}
+
+/** 公开着陆页统计（免认证）：真实入库规模，用于 welcome 展示。 */
+export async function getPublicStats(): Promise<PublicStats> {
+  return handle<PublicStats>(await doFetch(`${BASE}/public/stats`));
+}
+
 export async function createCorpus(
   projectId: string,
   file: File,

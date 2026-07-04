@@ -85,3 +85,13 @@ def test_healthz_exempt(authz_client):
     c, _ = authz_client
     r = c.get("/healthz")
     assert r.status_code == 200, r.text  # 豁免路径无需登录
+
+
+def test_public_stats_exempt(authz_client):
+    c, _ = authz_client
+    r = c.get("/public/stats")  # 无 cookie：authz 豁免的公开着陆页统计
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"papers", "blockAnchors", "dois"}
+    # 端点真跑（含 json_array_length 聚合）；空测试库各计数为 0 且均为非负整数
+    assert all(isinstance(body[k], int) and body[k] >= 0 for k in body)
