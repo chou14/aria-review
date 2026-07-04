@@ -12,8 +12,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.main import app, get_r_client
+from app.auth import get_current_user
+from app.authz import global_guard
 from app.config import settings
 from app.db import Base, get_session
+from app.repositories import user as user_repo
 from app import models  # noqa: F401 — 注册 ORM 映射 (勿用 import app.models, 会重绑 app 遮蔽 FastAPI 实例)
 
 _VALID_CID = "11111111-1111-4111-8111-111111111111"
@@ -270,6 +273,10 @@ def pytest_configure(config):
         "markers",
         "real_r: 启动真实 r-analysis plumber 进程的契约测试；无 Rscript 时自动跳过。",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_guard: 不放行全局守卫，测试真实认证 + owner 隔离（test_authz）。",
+    )
 
 
 def _free_local_port() -> int:
@@ -394,6 +401,24 @@ def fake_r():
     return FakeR()
 
 
+@pytest.fixture(autouse=True)
+def _bypass_global_guard(request):
+    """所有测试放行全局守卫；标 @pytest.mark.real_guard 的测试（test_authz）走真实守卫。
+
+    autouse 覆盖所有测试，无论用哪个 client fixture（conftest.client / 各文件自建 aclient）。
+    """
+    if request.node.get_closest_marker("real_guard"):
+        yield
+        return
+    from app.models import User
+    stub = User(id=1, email="test@e2e.local", role="user", status="active", credits=0)
+    app.dependency_overrides[global_guard] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: stub
+    yield
+    app.dependency_overrides.pop(global_guard, None)
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 @pytest_asyncio.fixture
 async def client(fake_r):
     """HTTP 测试客户端；同时 override:
@@ -405,12 +430,20 @@ async def client(fake_r):
     """
     engine, factory = await _make_test_engine()
 
+    # Round 5: 建测试用户并注入 get_current_user，让现有 REST 测试透明通过鉴权
+    # （未认证/跨租户用例在 test_authz_*.py 单独覆盖）。
+    async with factory() as s:
+        _test_user = await user_repo.register_with_invite(
+            s, email="test@e2e.local", password_hash="x",
+            invite_code=None, invite_required=False)
+
     async def _override_get_session():
         async with factory() as s:
             yield s
 
     app.dependency_overrides[get_r_client] = lambda: fake_r
     app.dependency_overrides[get_session] = _override_get_session
+    app.dependency_overrides[get_current_user] = lambda: _test_user
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

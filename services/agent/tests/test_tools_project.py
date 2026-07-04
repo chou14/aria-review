@@ -10,8 +10,12 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.config import settings
+from app.errors import ApiError
+from app.models import Attachment, Paper
 from app.tools.project import ProjectTool
 from app.harness.tools import ToolRegistry
 from app.repositories.library import add_paper
@@ -143,6 +147,75 @@ async def test_import_search_results_preserves_metadata_and_dedups(proj_tool):
     row = listed.data[0]
     assert row["doi"] == "10.1000/ai-struct"
     assert row["inclusion_status"] == "included"
+
+
+@pytest.mark.asyncio
+async def test_import_search_results_auto_fetches_sciverse_fulltext(proj_tool, session, monkeypatch, tmp_path):
+    """导入 Sciverse doc_id 候选后自动补全文，单篇失败不影响题录导入。"""
+
+    class FakeSciverseClient:
+        async def content(self, doc_id, offset=None, limit=None):
+            if doc_id == "doc-bad":
+                raise ApiError(503, "SCIVERSE_UNAVAILABLE", "mock failed")
+            return {"text": f"# {doc_id}\n\nFull text", "more": False}
+
+    monkeypatch.setattr(settings, "corpora_dir", str(tmp_path))
+    monkeypatch.setattr("app.tools.project.SciverseClient", lambda cfg: FakeSciverseClient())
+
+    create_r = await proj_tool.execute("create", {"name": "Sciverse Import"})
+    project_id = create_r.data[0]["project_id"]
+    ctx = {
+        "sciverse": {"base_url": "https://api.sciverse.space", "api_token": "token"},
+        "search_candidates": [
+            {
+                "candidate_id": "s1",
+                "title": "Sciverse Fulltext OK",
+                "doi": "10.2000/s1",
+                "sciverseDocId": "doc-ok",
+                "citedByCount": 9.8,
+            },
+            {
+                "candidate_id": "s2",
+                "title": "Sciverse Fulltext Bad",
+                "doi": "10.2000/s2",
+                "sciverseDocId": "doc-bad",
+            },
+            {
+                "candidate_id": "m1",
+                "title": "Metadata Only",
+                "doi": "10.2000/m1",
+            },
+        ],
+    }
+
+    result = await proj_tool.execute(
+        "import_search_results",
+        {"project_id": project_id, "default_status": "included"},
+        context=ctx,
+    )
+
+    assert result.success, result.error
+    row = result.data[0]
+    assert row["imported"] == 3
+    assert row["sciverse_fulltext"]["eligible"] == 2
+    assert row["sciverse_fulltext"]["fetched"] == 1
+    assert row["sciverse_fulltext"]["failed"] == 1
+    assert "已自动拉取 1 篇成功 1 篇失败" in result.summary
+
+    async with async_sessionmaker(session.bind, expire_on_commit=False)() as s:
+        ok = (await s.execute(select(Paper).where(Paper.doi == "10.2000/s1"))).scalar_one()
+        bad = (await s.execute(select(Paper).where(Paper.doi == "10.2000/s2"))).scalar_one()
+        ok_atts = list((await s.execute(
+            select(Attachment).where(Attachment.paper_id == ok.id)
+        )).scalars().all())
+        bad_atts = list((await s.execute(
+            select(Attachment).where(Attachment.paper_id == bad.id)
+        )).scalars().all())
+
+    assert ok.csl_json["citedByCount"] == 9
+    assert len(ok_atts) == 1
+    assert ok_atts[0].content_type == "text/markdown"
+    assert bad_atts == []
 
 
 # ======================================================================

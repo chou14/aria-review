@@ -8,7 +8,7 @@
  *   2. 常驻入口 <GuideButton onClick={...} />：ghost 按钮「? 新手指南」，老用户可随时重开。
  *
  * 持久化辅助：
- *   - hasOnboarded() / markOnboarded()：localStorage `bibliocn.onboarded` 标记，
+ *   - hasOnboarded(user) / markOnboarded(user)：localStorage 标记按用户维度隔离，
  *     首次进入平台时自动弹一次；关闭后写标记不再自动弹。读写均 try/catch 优雅降级。
  *
  * 不引入任何 tour 第三方库，纯手写轻量浮层。
@@ -18,10 +18,21 @@ import { useEffect, useRef } from "react";
 /** localStorage 标记 key */
 const ONBOARDED_KEY = "bibliocn.onboarded";
 
+interface OnboardingIdentity {
+  id?: number | string | null;
+  email?: string | null;
+}
+
+function onboardedKey(identity?: OnboardingIdentity | null): string {
+  const raw = identity?.id ?? identity?.email;
+  if (raw == null || String(raw).trim() === "") return ONBOARDED_KEY;
+  return `${ONBOARDED_KEY}.${String(raw).trim().toLowerCase()}`;
+}
+
 /** 是否已完成首次引导（try/catch：隐私模式 / 禁用时按「已引导」处理，避免反复弹） */
-export function hasOnboarded(): boolean {
+export function hasOnboarded(identity?: OnboardingIdentity | null): boolean {
   try {
-    return localStorage.getItem(ONBOARDED_KEY) === "1";
+    return localStorage.getItem(onboardedKey(identity)) === "1";
   } catch {
     // 读不到（隐私模式）：返回 true，避免无法持久化导致每次都弹
     return true;
@@ -29,9 +40,9 @@ export function hasOnboarded(): boolean {
 }
 
 /** 写入「已完成首次引导」标记（try/catch 优雅降级） */
-export function markOnboarded(): void {
+export function markOnboarded(identity?: OnboardingIdentity | null): void {
   try {
-    localStorage.setItem(ONBOARDED_KEY, "1");
+    localStorage.setItem(onboardedKey(identity), "1");
   } catch {
     /* 隐私模式 / 禁用：忽略 */
   }
@@ -102,7 +113,7 @@ export function WelcomeTour({ open, onClose }: WelcomeTourProps) {
         </button>
 
         <h2 id="onboard-title" className="onboard-title">
-          欢迎使用 Biblio<span className="onboard-accent">CN</span>
+          欢迎使用 <span className="onboard-accent">Aria Review</span>
         </h2>
         <p id="onboard-desc" className="onboard-desc">
           一个面向中文研究者的文献计量与系统综述（SLR）助手。

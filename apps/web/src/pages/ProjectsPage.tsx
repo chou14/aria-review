@@ -7,11 +7,13 @@
  *   - inline 样式迁到 design-system 类（.projects-* / .wf-*），视觉与 A6/A7 面板统一。
  *   - 新建表单功能不变（useCreateProject）。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useCreateProject, useProjects } from "../api/agentHooks";
+import { useAuth } from "../auth/AuthContext";
 import { ErrMsg, Loading } from "../lib/ui";
 import { TrustBadgeStrip } from "../components/TrustBadgeStrip";
+import { WelcomeTour, hasOnboarded, markOnboarded } from "../components/onboarding/WelcomeTour";
 
 /** 五步工作流（与 StageBar / WelcomeTour 共享心智模型） */
 const WORKFLOW = [
@@ -52,6 +54,7 @@ function WorkflowFlow() {
 
 export function ProjectsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data, isLoading, isFetching, error, refetch } = useProjects();
   const createMutation = useCreateProject();
 
@@ -59,6 +62,7 @@ export function ProjectsPage() {
   const [rq, setRq] = useState("");
   const [desc, setDesc] = useState("");
   const [formErr, setFormErr] = useState<string | null>(null);
+  const [tourOpen, setTourOpen] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -81,17 +85,27 @@ export function ProjectsPage() {
   const hasProjects = !!data && data.projects.length > 0;
   const hasInitialLoadError = !!error && !data;
 
+  useEffect(() => {
+    if (isFirstTime && user && !hasOnboarded(user)) setTourOpen(true);
+  }, [isFirstTime, user]);
+
+  function closeTour() {
+    setTourOpen(false);
+    markOnboarded(user);
+  }
+
   function retryProjects() {
     void refetch();
   }
 
   return (
     <div className="container projects-page">
+      <WelcomeTour open={tourOpen} onClose={closeTour} />
       {/* A8: 首次用户欢迎 hero + 五步工作流可视化 */}
       {isFirstTime && (
         <section className="projects-hero" aria-label="平台介绍">
           <h1 className="projects-hero-title">
-            欢迎使用 Biblio<span className="projects-hero-dot">CN</span>
+            欢迎使用 <span className="projects-hero-dot">Aria Review</span>
           </h1>
           <p className="projects-hero-lead">
             面向中文研究者的文献计量与系统综述助手 ——

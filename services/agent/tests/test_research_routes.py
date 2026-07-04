@@ -13,7 +13,7 @@ import pytest_asyncio
 from app.db import get_session
 from app.errors import ApiError
 from app.main import app, get_r_client
-from app.models import GapCandidateRecord
+from app.models import Attachment, GapCandidateRecord, Paper, ProjectPaper
 from app.routes_research import (
     GapPatchRequest,
     _discover_job_update,
@@ -85,18 +85,18 @@ def test_gap_dict_from_orm_like():
 
 def test_patch_oneof_revise_requires_statement():
     with pytest.raises(ApiError) as ei:
-        _validate_patch_oneof(GapPatchRequest(human_decision="revise"))
+        _validate_patch_oneof(GapPatchRequest(action="revise"))
     assert ei.value.status_code == 422
 
 
 def test_patch_oneof_accept_rejects_statement():
     with pytest.raises(ApiError):
-        _validate_patch_oneof(GapPatchRequest(human_decision="accept", statement="x"))
+        _validate_patch_oneof(GapPatchRequest(action="accept", statement="x"))
 
 
 def test_patch_oneof_accept_ok():
-    _validate_patch_oneof(GapPatchRequest(human_decision="accept"))
-    _validate_patch_oneof(GapPatchRequest(human_decision="revise", statement="新论断"))
+    _validate_patch_oneof(GapPatchRequest(action="accept"))
+    _validate_patch_oneof(GapPatchRequest(action="revise", statement="新论断"))
 
 
 # ===================================================================== 集成（async client）
@@ -152,6 +152,34 @@ async def test_discover_no_corpus_400(aclient):
     r = await c.post(f"/projects/{pid}/corpus/c1/gaps:discover", json={})
     assert r.status_code == 400
     assert r.json()["code"] == "NO_CORPUS"
+
+
+@pytest.mark.asyncio
+async def test_discover_no_corpus_mentions_parsed_but_not_included(aclient):
+    """已上传解析但仍是 candidate 时，报错必须指向文献库-筛选-标记已纳入。"""
+    c, sf = aclient
+    pid = await _new_project(c)
+    async with sf() as s:
+        paper = Paper(title="Parsed but candidate", dedup_key="title:parsed-candidate")
+        s.add(paper)
+        await s.flush()
+        s.add(ProjectPaper(project_id=pid, paper_id=paper.id, inclusion_status="candidate"))
+        s.add(Attachment(
+            paper_id=paper.id,
+            mineru_status="done",
+            markdown_path="/tmp/parsed.md",
+            sha256="b" * 64,
+        ))
+        await s.commit()
+
+    r = await c.post(f"/projects/{pid}/corpus/c1/gaps:discover", json={})
+    assert r.status_code == 400
+    body = r.json()
+    assert body["code"] == "NO_CORPUS"
+    assert "文献库" in body["message"]
+    assert "筛选" in body["message"]
+    assert "标记为【已纳入】" in body["message"]
+    assert body["details"]["candidatesWithFulltextCount"] == 1
 
 
 @pytest.mark.asyncio
@@ -223,12 +251,12 @@ async def test_patch_hitl_accept_and_revise(aclient):
     pid = await _new_project(c)
     await _seed_gap(sf, pid=pid, run_id="779", gap_id="gap_h")
     # accept → status accepted
-    r1 = await c.patch(f"/projects/{pid}/gaps/gap_h", json={"human_decision": "accept"})
+    r1 = await c.patch(f"/projects/{pid}/gaps/gap_h", json={"action": "accept"})
     assert r1.status_code == 200
     assert r1.json()["status"] == "accepted"
     # revise → 改写 statement
     r2 = await c.patch(f"/projects/{pid}/gaps/gap_h",
-                       json={"human_decision": "revise", "statement": "修订后的论断"})
+                       json={"action": "revise", "statement": "修订后的论断"})
     assert r2.status_code == 200
     assert r2.json()["statement"] == "修订后的论断"
 
@@ -237,7 +265,7 @@ async def test_patch_hitl_accept_and_revise(aclient):
 async def test_patch_revise_without_statement_422_before_lookup(aclient):
     c, _ = aclient
     pid = await _new_project(c)
-    r = await c.patch(f"/projects/{pid}/gaps/nope", json={"human_decision": "revise"})
+    r = await c.patch(f"/projects/{pid}/gaps/nope", json={"action": "revise"})
     assert r.status_code == 422   # 前置 oneOf 校验先于 gap 404
 
 
@@ -245,5 +273,5 @@ async def test_patch_revise_without_statement_422_before_lookup(aclient):
 async def test_patch_missing_gap_404(aclient):
     c, _ = aclient
     pid = await _new_project(c)
-    r = await c.patch(f"/projects/{pid}/gaps/nope", json={"human_decision": "accept"})
+    r = await c.patch(f"/projects/{pid}/gaps/nope", json={"action": "accept"})
     assert r.status_code == 404

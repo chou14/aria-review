@@ -21,7 +21,7 @@ import React from "react";
 import { LibPaperList } from "../pages/library/LibPaperList";
 import { LibPaperDetail } from "../pages/library/LibPaperDetail";
 import { useBackfillMetadata, useExtractStructured } from "../api/agentHooks";
-import type { BackfillMetadataResult, ExtractStructuredResult, PaperDetail, ProjectPaperItem } from "../api/client";
+import type { BackfillMetadataResult, ExtractStructuredResult, FulltextBackfillResult, PaperDetail, ProjectPaperItem } from "../api/client";
 
 // ---- 辅助 ----
 
@@ -207,7 +207,7 @@ describe("LibPaperList — backfillResult 反馈条", () => {
 
 describe("LibPaperList — extractResult 反馈条", () => {
   const result: ExtractStructuredResult = {
-    processed: 5, extracted: 4, skipped: 1, failed: 0, available: 6,
+    processed: 5, extracted: 4, skipped: 1, failed: 0, available: 6, noFulltext: 0,
   };
 
   it("显示 extracted + 待解析提示", () => {
@@ -242,6 +242,41 @@ describe("LibPaperList — extractResult 反馈条", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "关闭解析反馈" }));
     expect(onClearExtractResult).toHaveBeenCalledOnce();
+  });
+});
+
+describe("LibPaperList — fulltextBackfillResult 失败明细", () => {
+  const result: FulltextBackfillResult = {
+    total: 2,
+    fetched: 0,
+    skipped: 0,
+    failed: [
+      { paperId: 8, reason: "Sciverse 无全文" },
+      { paperId: 9, reason: "请求超时" },
+    ],
+    remaining: 0,
+  };
+
+  it("失败数大于 0 时可展开显示标题/失败原因，标题缺失时回退 paperId", () => {
+    render(
+      <LibPaperList
+        papers={[]}
+        {...baseListProps}
+        allPapers={[{ ..._makePaper(8), title: "已知标题" }]}
+        isBackfilling={false}
+        isExtracting={false}
+        fulltextBackfillResult={result}
+        onBackfill={vi.fn()}
+        onExtract={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(/失败 2/)).toBeInTheDocument();
+    expect(screen.getByText("查看失败明细")).toBeInTheDocument();
+    expect(screen.getByText("已知标题")).toBeInTheDocument();
+    expect(screen.getByText("#8：Sciverse 无全文")).toBeInTheDocument();
+    expect(screen.getByText("paperId 9")).toBeInTheDocument();
+    expect(screen.getByText("请求超时")).toBeInTheDocument();
   });
 });
 
@@ -328,10 +363,10 @@ describe("LibPaperDetail — ExtractionCard", () => {
     vi.restoreAllMocks();
   });
 
-  function renderDetail(paperDetail: PaperDetail) {
+  function renderDetail(paperDetail: Omit<PaperDetail, "hasReadableFulltext"> & { hasReadableFulltext?: boolean }) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // 直接注入缓存，避免真实 HTTP 请求
-    qc.setQueryData(["paper", 1, 10], paperDetail);
+    // 直接注入缓存，避免真实 HTTP 请求（hasReadableFulltext 后端恒返回，fixture 默认 false）
+    qc.setQueryData(["paper", 1, 10], { hasReadableFulltext: false, ...paperDetail });
     return render(
       <QueryClientProvider client={qc}>
         <LibPaperDetail pid={1} paperId={10} />
@@ -398,6 +433,42 @@ describe("LibPaperDetail — ExtractionCard", () => {
       inclusionStatus: "candidate",
     });
     expect(screen.queryByText("AI 结构化解析")).not.toBeInTheDocument();
+  });
+
+  it("有 sciverseDocId 且无全文时显示「拉取全文」按钮并调用端点", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        paperId: 10,
+        docId: "doc-1",
+        attachmentId: 9,
+        chars: 120,
+        sha256: "abc",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderDetail({
+      paperId: 10,
+      title: "测试",
+      inclusionStatus: "candidate",
+      sciverseDocId: "doc-1",
+      hasPdf: false,
+      ocrStatus: "none",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "拉取全文" }));
+
+    await waitFor(() => {
+      const contentCall = fetchMock.mock.calls.find(([url]) =>
+        String(url).includes("/projects/1/papers/10/sciverse/content"),
+      ) as [string, RequestInit] | undefined;
+      expect(contentCall).toBeDefined();
+      const [url, init] = contentCall!;
+      expect(url).toContain("/projects/1/papers/10/sciverse/content");
+      expect(init.method).toBe("POST");
+      expect(JSON.parse(init.body as string)).toMatchObject({ docId: "doc-1" });
+    });
   });
 });
 

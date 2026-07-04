@@ -33,6 +33,16 @@ vi.mock("../api/agentHooks", () => ({
   }),
 }));
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: 1, email: "qa@example.com" },
+    isLoading: false,
+    isAuthenticated: true,
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 import { TopBar } from "../components/shell/TopBar";
 import { AnalysisView } from "../pages/AnalysisView";
 
@@ -68,6 +78,22 @@ describe("R 分析服务缺席提示", () => {
 
     expect(screen.getByText("R 分析服务未启动")).toBeInTheDocument();
     expect(screen.queryByText("后端部分不可用")).not.toBeInTheDocument();
+  });
+
+  it("TopBar 使用统一产品副标题", () => {
+    mockUseHealth.mockReturnValue({
+      data: { status: "ok", service: "agent", rService: "up" },
+      isError: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("可信文献综述 Agent 工作台")).toBeInTheDocument();
+    expect(screen.queryByText("文献计量与综述助手")).toBeNull();
   });
 
   it("TopBar 在 Agent 不可达时给出独立提示", () => {

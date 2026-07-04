@@ -2,6 +2,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addPapersFromSearch,
+  backfillFulltext,
   backfillMetadata,
   createArtifact,
   createProject,
@@ -9,6 +10,7 @@ import {
   deleteArtifact,
   extractStructured,
   getPaperDetail,
+  getAiJob,
   getProject,
   getProjectPapers,
   getProjectLibraryStats,
@@ -45,12 +47,15 @@ import type {
   BackfillMetadataResult,
   CorpusMaterializeResult,
   ExtractStructuredResult,
+  FulltextBackfillResult,
   FromSearchResult,
   ImportResult,
   InclusionStatus,
   LibraryStats,
   ProjectLibraryStats,
   SearchCandidate,
+  SciverseRequestOptions,
+  AiJob,
 } from "./client";
 import type { components } from "./schema";
 import type { BrandCorpusIdFields, RCorpusId } from "./corpusIds";
@@ -82,10 +87,11 @@ export function getPanelRCorpusId(activeCorpus: ActiveCorpus | null | undefined)
 
 // ---- query hooks ----
 
-export function useProjects() {
+export function useProjects(enabled = true) {
   return useQuery({
     queryKey: ["projects"],
     queryFn: listProjects,
+    enabled,
   });
 }
 
@@ -220,6 +226,26 @@ export function useRun(pid: number, rid: string) {
   });
 }
 
+function isTerminalAiJobStatus(status: AiJob["status"] | undefined): boolean {
+  return status === "done" || status === "failed" || status === "cancelled";
+}
+
+export function useAiJob(
+  pid: number,
+  jobId: number | null,
+  opts?: { enabled?: boolean; pollMs?: number },
+) {
+  const pollMs = opts?.pollMs ?? 4000;
+  return useQuery<AiJob, Error>({
+    queryKey: ["aiJob", pid, jobId],
+    queryFn: () => getAiJob(String(pid), jobId as number),
+    enabled: pid > 0 && jobId != null && (opts?.enabled ?? true),
+    refetchInterval: (query) => (
+      isTerminalAiJobStatus(query.state.data?.status) ? false : pollMs
+    ),
+  });
+}
+
 // M2: corpus 物化 mutation hook
 // 完成后使 projectDetail 缓存失效，触发 activeCorpus/latestCorpus 刷新
 export function useMaterializeCorpus(pid: number) {
@@ -294,6 +320,25 @@ export function useBackfillMetadata(pid: number) {
       void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
       void qc.invalidateQueries({ queryKey: ["globalLibraryStats"] });
       void qc.invalidateQueries({ queryKey: ["project", pid] });
+    },
+  });
+}
+
+export function useBackfillFulltext(pid: number) {
+  const qc = useQueryClient();
+  return useMutation<
+    FulltextBackfillResult,
+    Error,
+    { paperIds?: number[] | null; maxPapers?: number; excludePaperIds?: number[]; sciverse?: SciverseRequestOptions }
+  >({
+    mutationFn: ({ paperIds, maxPapers, excludePaperIds, sciverse }) =>
+      backfillFulltext(pid, { paperIds, maxPapers, excludePaperIds }, sciverse),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["projectPapers", pid] });
+      void qc.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
+      void qc.invalidateQueries({ queryKey: ["globalLibraryStats"] });
+      void qc.invalidateQueries({ queryKey: ["project", pid] });
+      void qc.invalidateQueries({ queryKey: ["paper", pid] });
     },
   });
 }
@@ -416,15 +461,16 @@ export function useVerifyGap(pid: number) {
 export function useGapVerdict(
   pid: number,
   gapId: string | null,
-  opts?: { enabled?: boolean; poll?: boolean },
+  opts?: { enabled?: boolean; poll?: boolean; pollMs?: number },
 ) {
+  const pollMs = opts?.pollMs ?? 4000;
   return useQuery<GapVerdictResult, Error>({
     queryKey: ["gapVerdict", pid, gapId],
     queryFn: () => getGapVerdict(pid, gapId as string),
     enabled: pid > 0 && !!gapId && (opts?.enabled ?? true),
     retry: false,
-    // poll: 裁决异步产出，拿到数据前（含 verify 后短暂 404）按 2s 轮询；拿到即停（codex B5-P2）。
-    refetchInterval: opts?.poll ? (query) => (query.state.data ? false : 2000) : false,
+    // poll: 裁决异步产出，拿到数据前（含 verify 后短暂 404）按 3-5s 轮询；拿到即停（codex B5-P2）。
+    refetchInterval: opts?.poll ? (query) => (query.state.data ? false : pollMs) : false,
   });
 }
 

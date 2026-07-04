@@ -1,13 +1,13 @@
 /**
  * PaperStatusBadges.tsx — 文献逐篇 PDF/OCR/元数据状态徽章（Task 6）
  *
- * 按 paper 的 hasPdf/ocrStatus 渲染徽章：
- *   📄 PDF      — hasPdf=true
+ * 按 paper 的 hasPdf/sciverseDocId/ocrStatus 渲染徽章：
+ *   含全文       — hasPdf=true 或 sciverseDocId 非空
  *   已OCR       — ocrStatus="done"
  *   解析中      — ocrStatus="processing"
  *   待OCR       — ocrStatus="pending"
  *   OCR失败     — ocrStatus="failed"
- *   仅元数据    — hasPdf=false（无全文）
+ *   仅题录       — hasPdf=false 且无 sciverseDocId（无全文）
  *
  * 无障碍: title + aria-label 双保险，屏幕阅读器可达。
  */
@@ -17,23 +17,27 @@ type OcrStatus = "none" | "pending" | "processing" | "done" | "failed";
 interface Props {
   hasPdf: boolean;
   ocrStatus: OcrStatus;
+  sciverseDocId?: string | null;
+  hasReadableFulltext?: boolean | null;
 }
 
-export function PaperStatusBadges({ hasPdf, ocrStatus }: Props) {
+export function PaperStatusBadges({ hasPdf, ocrStatus, sciverseDocId, hasReadableFulltext }: Props) {
+  const hasSciverseDoc = !!sciverseDocId?.trim();
+  const hasFulltext = Boolean(hasPdf || hasSciverseDoc || hasReadableFulltext);
+
   return (
     <span className="paper-status-badges">
-      {hasPdf ? (
+      {hasFulltext ? (
         <>
-          {/* PDF 附件标志 */}
           <span
-            className="paper-badge paper-badge--pdf"
-            title="已上传 PDF 全文附件"
-            aria-label="已上传 PDF 全文附件"
+            className="paper-badge paper-badge--fulltext"
+            title={hasPdf ? "已有全文附件" : "Sciverse 可拉取全文"}
+            aria-label={hasPdf ? "已有全文附件" : "Sciverse 可拉取全文"}
           >
-            📄 PDF
+            含全文
           </span>
           {/* OCR 状态 */}
-          {ocrStatus === "done" && (
+          {hasPdf && ocrStatus === "done" && (
             <span
               className="paper-badge paper-badge--ocr-done"
               title="PDF 已完成 OCR 解析，可用作综述语料"
@@ -42,7 +46,7 @@ export function PaperStatusBadges({ hasPdf, ocrStatus }: Props) {
               已OCR
             </span>
           )}
-          {ocrStatus === "processing" && (
+          {hasPdf && ocrStatus === "processing" && (
             <span
               className="paper-badge paper-badge--ocr-pending"
               title="PDF 正在 OCR 解析中，请稍候"
@@ -51,7 +55,7 @@ export function PaperStatusBadges({ hasPdf, ocrStatus }: Props) {
               解析中
             </span>
           )}
-          {ocrStatus === "pending" && (
+          {hasPdf && ocrStatus === "pending" && (
             <span
               className="paper-badge paper-badge--ocr-pending"
               title="PDF 等待 OCR 解析队列"
@@ -60,7 +64,7 @@ export function PaperStatusBadges({ hasPdf, ocrStatus }: Props) {
               待OCR
             </span>
           )}
-          {ocrStatus === "failed" && (
+          {hasPdf && ocrStatus === "failed" && (
             <span
               className="paper-badge paper-badge--ocr-failed"
               title="OCR 解析失败，可删除后重新上传 PDF"
@@ -71,13 +75,13 @@ export function PaperStatusBadges({ hasPdf, ocrStatus }: Props) {
           )}
         </>
       ) : (
-        /* 无 PDF — 仅元数据 */
+        /* 无全文 — 仅题录 */
         <span
           className="paper-badge paper-badge--meta-only"
-          title="仅题录元数据，无全文 PDF"
-          aria-label="仅题录元数据，无全文 PDF"
+          title="仅题录元数据，无法用于研究空白精读，可尝试补全文"
+          aria-label="仅题录元数据，无法用于研究空白精读，可尝试补全文"
         >
-          仅元数据
+          仅题录
         </span>
       )}
     </span>

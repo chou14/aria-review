@@ -3,6 +3,8 @@ import {
   addPapersFromSearch,
   API_BASE,
   ApiError,
+  authMe,
+  backfillFulltext,
   cancelRun,
   createCorpus,
   createRun,
@@ -11,6 +13,7 @@ import {
   getOverview,
   pingLlm,
   pingSciverse,
+  resolveApiBase,
   sanitizeSearchCandidateForImport,
   searchSciverseMeta,
   streamReview,
@@ -148,6 +151,15 @@ describe("api client", () => {
     expect(payload.raw).toBeUndefined();
   });
 
+  it("sanitizeSearchCandidateForImport 透传合法 citedByCount、丢弃负值/非数值", () => {
+    const base = { candidate_id: "c1", title: "Valid", source: "sciverse" };
+    expect(sanitizeSearchCandidateForImport({ ...base, citedByCount: 98 }).citedByCount).toBe(98);
+    expect(sanitizeSearchCandidateForImport({ ...base, citedByCount: 0 }).citedByCount).toBe(0);
+    expect(sanitizeSearchCandidateForImport({ ...base, citedByCount: -3 }).citedByCount).toBeUndefined();
+    expect(sanitizeSearchCandidateForImport({ ...base, citedByCount: Number.NaN }).citedByCount).toBeUndefined();
+    expect(sanitizeSearchCandidateForImport({ ...base }).citedByCount).toBeUndefined();
+  });
+
   it("Sciverse API 通过请求头发送自定义 baseUrl/token", async () => {
     const f = mockFetch(200, { ok: true, baseUrl: "https://api.sciverse.space", resultCount: 1 });
     vi.stubGlobal("fetch", f);
@@ -189,12 +201,60 @@ describe("api client", () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ docId: "doc-1" });
   });
 
+  it("backfillFulltext 调用项目批量补全文端点并透传 Sciverse 请求头", async () => {
+    const f = mockFetch(200, {
+      total: 2,
+      fetched: 1,
+      skipped: 0,
+      failed: [{ paperId: 8, reason: "no content" }],
+      remaining: 0,
+    });
+    vi.stubGlobal("fetch", f);
+    const result = await backfillFulltext(
+      7,
+      { paperIds: [3, 8], maxPapers: 2 },
+      { apiToken: "tok", baseUrl: "https://api.sciverse.space" },
+    );
+    const [url, init] = f.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/projects/7/papers/fulltext:backfill");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>)["X-Sciverse-Token"]).toBe("tok");
+    expect(JSON.parse(init.body as string)).toMatchObject({ paperIds: [3, 8], maxPapers: 2 });
+    expect(result.fetched).toBe(1);
+  });
+
   it("错误响应抛 ApiError 带 code/status", async () => {
     vi.stubGlobal("fetch", mockFetch(404, { code: "CORPUS_NOT_FOUND", message: "语料不存在" }));
     await expect(getOverview("p", CID)).rejects.toMatchObject({
       code: "CORPUS_NOT_FOUND",
       status: 404,
     });
+  });
+
+  it("错误响应保留结构化 detail", async () => {
+    vi.stubGlobal("fetch", mockFetch(400, {
+      code: "NO_FULLTEXT",
+      message: "项目无可读全文语料",
+      detail: { includedCount: 1, includedWithFulltext: 0 },
+    }));
+    await expect(getOverview("p", CID)).rejects.toMatchObject({
+      code: "NO_FULLTEXT",
+      detail: { includedCount: 1, includedWithFulltext: 0 },
+    });
+  });
+
+  it("authMe 对同一轮 in-flight 请求去重", async () => {
+    const f = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "ok",
+      json: async () => ({ id: 1, email: "a@example.com", display_name: null, role: "user", credits: 0 }),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", f);
+    const [a, b] = await Promise.all([authMe(), authMe()]);
+    expect(a?.email).toBe("a@example.com");
+    expect(b?.email).toBe("a@example.com");
+    expect(f).toHaveBeenCalledTimes(1);
   });
 
   it("ApiError 是 Error 实例", () => {
@@ -212,6 +272,13 @@ describe("api client", () => {
       friendlyMessage: expect.stringContaining(API_BASE),
       originalMessage: "Failed to fetch",
     });
+  });
+
+  it("生产构建忽略 localhost API base，避免公网浏览器探测本机端口", () => {
+    expect(resolveApiBase("http://localhost:4399/api", { PROD: true })).toBe("/api");
+    expect(resolveApiBase("http://127.0.0.1:4399/api", { PROD: true })).toBe("/api");
+    expect(resolveApiBase("http://localhost:4399/api", { DEV: true })).toBe("http://localhost:4399/api");
+    expect(resolveApiBase("", { PROD: true })).toBe("/api");
   });
 
   it("请求永不返回时默认 30s 后抛出可重试超时 ApiError", async () => {

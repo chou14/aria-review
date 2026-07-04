@@ -24,6 +24,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..ingest.search_metadata import parse_cited_by_count
 from ..models import Corpus, CorpusPaper, Paper, ProjectPaper
 
 # DOI URL 前缀正则（与 library.py 保持一致）
@@ -220,5 +221,9 @@ async def get_corpus_records(s: AsyncSession, corpus_id: int) -> list[dict]:
             "language": paper.language,
             "csl_json": csl if csl else None,
         }
+        if isinstance(csl, dict):
+            cited_by_count = parse_cited_by_count(csl.get("citedByCount"))
+            if cited_by_count is not None:
+                record["TC"] = cited_by_count
         result.append(record)
     return result

@@ -9,5 +9,7 @@ asyncpg>=0.29
 alembic>=1.13
 python-dotenv>=1.0
 pyyaml>=6
+# 认证/BYOK 加密 (Phase B): auth.py 用 cryptography.fernet 加密平台/用户密钥
+cryptography>=42
 pytest>=8
 pytest-asyncio>=0.23

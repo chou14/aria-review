@@ -317,6 +317,34 @@ async def test_extract_project_not_found(aclient):
     assert r.json()["code"] == "PROJECT_NOT_FOUND"
 
 
+@pytest.mark.asyncio
+async def test_extract_reports_no_fulltext_instead_of_silent_zero(aclient):
+    """项目只有题录无全文时，返回 noFulltext 和中文 summary，不再 0/0/0 静默。"""
+    c, factory = aclient
+    pid = await _create_project(factory, "No Fulltext Test")
+    async with factory() as s:
+        paper = Paper(
+            title="Metadata only",
+            source="sciverse",
+            item_type="journalArticle",
+            dedup_key="title:no-fulltext-endpoint",
+        )
+        s.add(paper)
+        await s.flush()
+        s.add(ProjectPaper(project_id=pid, paper_id=paper.id, inclusion_status="candidate"))
+        await s.commit()
+
+    r = await c.post(f"/projects/{pid}/papers/extract-structured", json={"limit": 10})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["processed"] == 0
+    assert body["extracted"] == 0
+    assert body["skipped"] == 0
+    assert body["noFulltext"] == 1
+    assert "无全文附件" in body["summary"]
+    assert "文献库补全文" in body["summary"]
+
+
 # ---------------------------------------------------------------------------
 # 测试 6: get_paper_detail 返回 extraction
 # ---------------------------------------------------------------------------

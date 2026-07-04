@@ -66,6 +66,12 @@ vi.mock("../api/agentHooks", async () => {
         },
       };
     },
+    useBackfillFulltext: () => ({
+      isPending: false,
+      error: null,
+      reset: vi.fn(),
+      mutateAsync: vi.fn().mockResolvedValue({ total: 0, fetched: 0, skipped: 0, failed: [], remaining: 0 }),
+    }),
     useExtractStructured: () => {
       const [error, setError] = React.useState<Error | null>(null);
       return {

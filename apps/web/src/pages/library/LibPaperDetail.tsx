@@ -6,10 +6,11 @@
  * P3-T4: 结构化抽取卡（extraction 字段）。
  */
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePaper } from "../../api/agentHooks";
-import type { Creator, PaperExtractionDto } from "../../api/client";
-import { getPaperMarkdown } from "../../api/client";
+import type { Creator, PaperDetail, PaperExtractionDto } from "../../api/client";
+import { fetchSciverseContent, getPaperMarkdown } from "../../api/client";
+import { useSciverseSettings } from "../../api/useSciverseSettings";
 import { renderMarkdown } from "../../lib/markdown";
 import { ErrMsg, Loading, formatCreators } from "../../lib/ui";
 
@@ -132,6 +133,13 @@ const STATUS_CLASS: Record<string, string> = {
   maybe: "lib-status-maybe",
 };
 
+function hasReadableFulltext(paper: PaperDetail): boolean {
+  if (paper.hasReadableFulltext != null) return Boolean(paper.hasReadableFulltext);
+  if (paper.hasFulltext != null) return Boolean(paper.hasFulltext);
+  if (paper.fulltextAvailable != null) return Boolean(paper.fulltextAvailable);
+  return Boolean(paper.hasPdf && paper.ocrStatus === "done");
+}
+
 interface Props {
   pid: number;
   paperId: number;
@@ -141,6 +149,29 @@ interface Props {
 
 export function LibPaperDetail({ pid, paperId, onBack }: Props) {
   const { data, isLoading, error } = usePaper(pid, paperId);
+  const queryClient = useQueryClient();
+  const { settings: sciverse } = useSciverseSettings();
+  const sciverseDocId = data?.sciverseDocId?.trim() ?? "";
+  const canFetchSciverseContent = !!data && !!sciverseDocId && !hasReadableFulltext(data);
+  const fetchContent = useMutation({
+    mutationFn: () =>
+      fetchSciverseContent(
+        pid,
+        paperId,
+        { docId: sciverseDocId },
+        {
+          apiToken: sciverse.apiToken || undefined,
+          baseUrl: sciverse.baseUrl || undefined,
+        },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["paper", pid, paperId] });
+      void queryClient.invalidateQueries({ queryKey: ["paperMarkdown", pid, paperId] });
+      void queryClient.invalidateQueries({ queryKey: ["projectPapers", pid] });
+      void queryClient.invalidateQueries({ queryKey: ["projectLibraryStats", pid] });
+      void queryClient.invalidateQueries({ queryKey: ["project", pid] });
+    },
+  });
 
   if (isLoading) return <Loading label="加载详情…" />;
   if (error) return <ErrMsg error={error} />;
@@ -190,6 +221,28 @@ export function LibPaperDetail({ pid, paperId, onBack }: Props) {
           <p style={{ margin: 0, lineHeight: 1.75, fontSize: "0.9rem", color: "var(--ink-2)" }}>
             {data.abstract}
           </p>
+        </div>
+      )}
+
+      {(canFetchSciverseContent || fetchContent.isSuccess || fetchContent.isError) && (
+        <div className="lib-detail-section lib-fulltext-fetch">
+          <div className="lib-detail-section-label">全文</div>
+          {canFetchSciverseContent && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={fetchContent.isPending}
+              onClick={() => fetchContent.mutate()}
+            >
+              {fetchContent.isPending ? "拉取中…" : "拉取全文"}
+            </button>
+          )}
+          {fetchContent.isSuccess && (
+            <span className="lib-fulltext-fetch-note ok" role="status">
+              已拉取全文，可展开下方 Markdown 查看。
+            </span>
+          )}
+          {fetchContent.isError && <ErrMsg error={fetchContent.error} />}
         </div>
       )}
 

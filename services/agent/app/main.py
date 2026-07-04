@@ -9,7 +9,6 @@ Phase 0 范围: healthz + 上传→解析→概览 的代理 (切片1)。
 from __future__ import annotations
 import base64
 import asyncio
-import hashlib
 import json
 import os
 import re
@@ -36,6 +35,8 @@ from .logging_setup import configure_logging, get_logger
 from .prisma import build_prisma
 from .refs import extract_papers
 from .db import SessionLocal, engine, get_session
+from .authz import global_guard
+from .auth import get_current_user
 from .agent.context import AgentContext
 from .agent.prompts import AGENT_SYSTEM, WRAP_UP
 from .agent.registry_factory import build_registry
@@ -139,6 +140,9 @@ from .schemas import (
     FromSearchResult,
     SciverseAgenticSearchRequest,
     SciverseAgenticSearchResult,
+    SciverseBackfillFulltextRequest,
+    SciverseBackfillFulltextResult,
+    SciverseBackfillFailedItem,
     SciverseFetchContentRequest,
     SciverseFetchContentResult,
     SciverseMetaSearchRequest,
@@ -151,10 +155,22 @@ from .schemas import (
     ExtractStructuredResult,
 )
 from .ingest.fulltext import ingest_pdfs
+from .ingest.sciverse_fulltext import (
+    fetch_and_store_sciverse_content,
+    fetch_sciverse_markdown,
+    select_sciverse_backfill_candidates,
+    store_sciverse_markdown,
+)
+from .ingest.search_metadata import parse_cited_by_count
 from .repositories import corpus as corpus_repo
 from .services import project_svc
 from .services.metadata_backfill import backfill_paper_metadata
-from .services.extraction import extract_paper_structured
+from .services.extraction import (
+    count_no_fulltext_candidates,
+    extract_paper_structured,
+    fulltext_paper_ids_subquery,
+    is_no_fulltext_skip_reason,
+)
 from .sciverse import (
     SciverseClient,
     normalize_agentic_hit,
@@ -276,10 +292,14 @@ async def lifespan(app: FastAPI):
             await engine.dispose()
 
 
-app = FastAPI(title="BiblioCN agent", version="0.2.0", lifespan=lifespan)
+app = FastAPI(
+    title="BiblioCN agent", version="0.3.0", lifespan=lifespan,
+    dependencies=[Depends(global_guard)],  # 全局守卫：认证 + project 归属（Round 5）
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_credentials=True,  # cookie 会话跨域必需（allow_origins 因此不能为 "*"）
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -288,6 +308,8 @@ app.add_middleware(
 # main（_llm 等在 handler 内 lazy import），故此处 include 无循环依赖。
 from .routes_research import router as research_router  # noqa: E402
 app.include_router(research_router)
+from .routes_auth import router as auth_router  # noqa: E402 — 认证/账户/计费 (Phase B)
+app.include_router(auth_router)
 
 
 def get_r_client(request: Request) -> RClient:
@@ -1442,20 +1464,23 @@ async def ai_chat(
 # ---- P1-7: 领域 REST API（项目/文献/纳排）---- int pid 与旧 str project_id 端点共存
 
 @app.get("/projects", response_model=dict)
-async def list_projects_endpoint(s=Depends(get_session)):
-    """列出所有项目。"""
-    items = await project_svc.list_projects_dto(s)
+async def list_projects_endpoint(s=Depends(get_session), user=Depends(get_current_user)):
+    """列出当前登录用户的项目。"""
+    items = await project_svc.list_projects_dto(s, owner_id=user.id)
     return {"projects": items}
 
 
 @app.post("/projects", response_model=ProjectRef, status_code=201)
-async def create_project_endpoint(body: ProjectCreateRequest, s=Depends(get_session)):
-    """创建新项目。"""
+async def create_project_endpoint(
+    body: ProjectCreateRequest, s=Depends(get_session), user=Depends(get_current_user),
+):
+    """创建新项目（归属当前登录用户）。"""
     dto = await project_svc.create_project_dto(
         s,
         name=body.name,
         research_question=body.researchQuestion,
         description=body.description,
+        owner_id=user.id,
     )
     return dto
 
@@ -1745,95 +1770,97 @@ async def fetch_sciverse_content_endpoint(
     s=Depends(get_session),
 ):
     """按 Sciverse doc_id 拉取全文文本，保存为 markdown attachment。"""
-    from sqlalchemy import select
-    from .models import Attachment
+    saved = await fetch_and_store_sciverse_content(
+        s,
+        project_id=pid,
+        paper_id=paperId,
+        client=_sciverse_client(request, body),
+        doc_id=body.docId,
+        max_chars=body.maxChars,
+    )
+    return SciverseFetchContentResult(
+        paperId=saved.paper_id,
+        docId=saved.doc_id,
+        attachmentId=saved.attachment_id,
+        chars=saved.chars,
+        sha256=saved.sha256,
+    )
 
-    pp = await project_repo.find_project_paper(s, pid, paperId)
-    if pp is None:
-        raise ApiError(404, "PROJECT_PAPER_NOT_FOUND", f"文献 {paperId} 未关联到项目 {pid}")
 
-    doc_id = (body.docId or "").strip()
-    if not doc_id:
-        ids = await lib_repo.list_external_ids(s, paperId, provider="sciverse", id_type="doc_id")
-        if ids:
-            doc_id = ids[0].external_id
-    if not doc_id:
-        raise ApiError(422, "SCIVERSE_DOC_ID_MISSING", "该文献没有可用的 Sciverse doc_id")
+@app.post(
+    "/projects/{pid:int}/papers/fulltext:backfill",
+    response_model=SciverseBackfillFulltextResult,
+    tags=["sciverse", "library"],
+)
+async def backfill_sciverse_fulltext_endpoint(
+    pid: int,
+    body: SciverseBackfillFulltextRequest,
+    request: Request,
+    s=Depends(get_session),
+):
+    """批量为项目内 Sciverse doc_id 文献补全文。"""
+    if await project_repo.get_project(s, pid) is None:
+        raise ApiError(404, "PROJECT_NOT_FOUND", f"项目 {pid} 不存在")
 
     client = _sciverse_client(request, body)
-    chunks: list[str] = []
-    offset = 0
-    max_chars = body.maxChars or settings.sciverse_content_max_chars
-    while True:
-        part = await client.content(doc_id, offset=offset, limit=settings.sciverse_content_chunk_chars)
-        text = str(part.get("text") or "")
-        if text:
-            chunks.append(text)
-        if not part.get("more"):
-            break
-        next_offset = part.get("next_offset")
-        if next_offset is None:
-            break
-        offset = int(next_offset)
-        if sum(len(c) for c in chunks) >= max_chars:
-            break
-
-    markdown = "\n\n".join(chunks).strip()
-    if not markdown:
-        raise ApiError(404, "SCIVERSE_CONTENT_EMPTY", "Sciverse 未返回可保存的全文文本")
-
-    content = markdown.encode("utf-8")
-    sha = hashlib.sha256(content).hexdigest()
-    out_dir = Path(settings.corpora_dir) / "sciverse" / str(paperId)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    md_path = out_dir / f"{sha}.md"
-    md_path.write_text(markdown, encoding="utf-8")
-
-    att = Attachment(
-        paper_id=paperId,
-        path=str(md_path),
-        url=f"sciverse://content/{doc_id}",
-        content_type="text/markdown",
-        sha256=sha,
-        mineru_status="done",
-        markdown_path=str(md_path),
-    )
-    s.add(att)
-    await s.flush()
-    attachment_id = att.id
-    await s.commit()
-    await lib_repo.upsert_external_ids(
+    candidates = await select_sciverse_backfill_candidates(
         s,
-        paperId,
-        [{
-            "provider": "sciverse",
-            "id_type": "doc_id",
-            "external_id": doc_id,
-            "url": f"sciverse://content/{doc_id}",
-        }],
+        project_id=pid,
+        paper_ids=body.paperIds,
+        exclude_paper_ids=body.excludePaperIds,
+    )
+    total = len(candidates)
+    max_papers = max(1, int(body.maxPapers or 50))
+    targets = candidates[:max_papers]
+    remaining = max(0, total - len(targets))
+    # 候选已物化；释放读事务再进入慢网络拉取，避免长时间占用连接池（codex 复核 P2）
+    await s.rollback()
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def _fetch(candidate):
+        async with semaphore:
+            markdown = await fetch_sciverse_markdown(client, candidate.doc_id)
+            return candidate, markdown
+
+    fetched_payloads = await asyncio.gather(
+        *[_fetch(candidate) for candidate in targets],
+        return_exceptions=True,
     )
 
-    # B4 溯源：Sciverse 是纯文本、无 MinerU content_list 结构 → 据 markdown 合成 content_list
-    # 落 DocumentStructure，使综述 EvidenceResolver 能把引用定位到段(可点击溯源,page/bbox 缺省)。
-    # 与 MinerU 摄取同口径：结构落库失败不阻断全文落库(回滚结构事务、保留 attachment)。
-    try:
-        from .structure.blocks import markdown_to_content_list
-        from .ingest.fulltext import _upsert_document_structure
-        _cl = markdown_to_content_list(markdown)
-        if _cl:
-            await _upsert_document_structure(s, attachment_id, sha, markdown, _cl)
-            await s.commit()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Sciverse 结构合成落库失败(不阻断): attachment_id=%s: %r", attachment_id, exc)
-        await s.rollback()
+    fetched = 0
+    failed: list[SciverseBackfillFailedItem] = []
+    for item in fetched_payloads:
+        if isinstance(item, Exception):
+            # 保留 paperId：asyncio.gather 的异常本身不携带入参，按同序回填。
+            idx = len(failed) + fetched
+            paper_id = targets[idx].paper_id if idx < len(targets) else 0
+            reason = item.message if isinstance(item, ApiError) else str(item)
+            failed.append(SciverseBackfillFailedItem(paperId=paper_id, reason=reason))
+            continue
+        candidate, markdown = item
+        try:
+            await store_sciverse_markdown(
+                s,
+                paper_id=candidate.paper_id,
+                doc_id=candidate.doc_id,
+                markdown=markdown,
+            )
+            fetched += 1
+        except Exception as exc:  # noqa: BLE001
+            try:
+                await s.rollback()
+            except Exception:
+                pass
+            reason = exc.message if isinstance(exc, ApiError) else str(exc)
+            failed.append(SciverseBackfillFailedItem(paperId=candidate.paper_id, reason=reason))
 
-    saved = (await s.execute(select(Attachment).where(Attachment.id == attachment_id))).scalar_one()
-    return SciverseFetchContentResult(
-        paperId=paperId,
-        docId=doc_id,
-        attachmentId=saved.id,
-        chars=len(markdown),
-        sha256=sha,
+    return SciverseBackfillFulltextResult(
+        total=total,
+        fetched=fetched,
+        failed=failed,
+        skipped=remaining,
+        remaining=remaining,
     )
 
 
@@ -2164,6 +2191,8 @@ async def from_search_endpoint(
     skipped_count = 0
     failed: list[FromSearchFailedItem] = []
     paper_ids: list[int] = []
+    fulltext_eligible_paper_ids: list[int] = []
+    fulltext_seen: set[int] = set()
 
     from .repositories.project import find_project_paper
 
@@ -2205,8 +2234,14 @@ async def from_search_endpoint(
                     raw_refs = [r for r in raw_refs.split(";") if r.strip()]
                 if isinstance(raw_refs, list):
                     refs = list(dict.fromkeys(str(r).strip()[:1000] for r in raw_refs if str(r).strip()))
+            csl_json: dict = {}
             if refs:
-                paper_data["csl_json"] = {"references": refs[:1000]}
+                csl_json["references"] = refs[:1000]
+            cited_by_count = parse_cited_by_count(cand.citedByCount)
+            if cited_by_count is not None:
+                csl_json["citedByCount"] = cited_by_count
+            if csl_json:
+                paper_data["csl_json"] = csl_json
             # openalexId 无对应 Paper 列，有意丢弃（仅用于前端去重/展示）
 
             # 3. 幂等写入 Paper（命中 dedup 直接返回已有行）
@@ -2248,6 +2283,9 @@ async def from_search_endpoint(
                     await project_repo.set_inclusion(s, existing_pp.id, "included")
                 skipped_count += 1
                 paper_ids.append(paper.id)
+                if cand.sciverseDocId and paper.id not in fulltext_seen:
+                    fulltext_eligible_paper_ids.append(paper.id)
+                    fulltext_seen.add(paper.id)
                 continue
 
             # 5. 新关联到项目（默认 candidate）
@@ -2265,6 +2303,9 @@ async def from_search_endpoint(
 
             imported_count += 1
             paper_ids.append(paper.id)
+            if cand.sciverseDocId and paper.id not in fulltext_seen:
+                fulltext_eligible_paper_ids.append(paper.id)
+                fulltext_seen.add(paper.id)
         except Exception as exc:
             reason = _from_search_failure_reason(exc)
             log.exception(
@@ -2291,6 +2332,7 @@ async def from_search_endpoint(
         failed=failed,
         failedCount=len(failed),
         paperIds=paper_ids,
+        fulltextEligiblePaperIds=fulltext_eligible_paper_ids,
     )
 
 
@@ -2438,23 +2480,16 @@ async def extract_structured_endpoint(
 ):
     """P3-T3: LLM 从 OCR 全文批量结构化抽取研究要素。"""
     from .repositories.project import get_project as _get_proj
-    from .models import Attachment, Paper, PaperExtraction, ProjectPaper
+    from .models import Paper, PaperExtraction, ProjectPaper
     from sqlalchemy import select, func as sa_func
 
     # 1. 校验 project 存在
     if await _get_proj(s, pid) is None:
         raise ApiError(404, "PROJECT_NOT_FOUND", f"项目 {pid} 不存在")
 
-    # 2. 构建 OCR-done 子查询
-    att_sq = (
-        select(Attachment.paper_id)
-        .where(
-            Attachment.mineru_status == "done",
-            Attachment.markdown_path.isnot(None),
-        )
-        .distinct()
-        .scalar_subquery()
-    )
+    # 2. 构建 OCR-done 子查询，并统计无全文附件的题录文献
+    att_sq = fulltext_paper_ids_subquery()
+    no_fulltext = await count_no_fulltext_candidates(s, pid, reextract=body.reextract)
 
     # 3. 基础过滤：项目内 OCR done 的论文
     base_where = [
@@ -2489,11 +2524,24 @@ async def extract_structured_endpoint(
             .where(*base_where)
         )
         available: int = (await s.execute(count_q)).scalar_one()
-        return ExtractStructuredResult(processed=0, extracted=0, skipped=0, failed=0, available=available)
+        summary = (
+            f"跳过 {no_fulltext} 篇：无全文附件（仅题录），可先在文献库补全文"
+            if no_fulltext else None
+        )
+        return ExtractStructuredResult(
+            processed=0,
+            extracted=0,
+            skipped=0,
+            failed=0,
+            available=available,
+            noFulltext=no_fulltext,
+            summary=summary,
+        )
 
     # 6. 逐篇抽取（reextract=false 下 SQL 已排除已抽取篇，应用层只需处理无 markdown/读取失败的 skip）
     llm = _llm(request)
     processed = extracted = skipped = failed = 0
+    runtime_no_fulltext = 0
 
     for pid_paper in paper_ids:
         # A-fix: 每篇通过 s.get 获取新鲜对象，rollback 后下篇 s.get 是干净查询，不受 expire 影响
@@ -2509,6 +2557,8 @@ async def extract_structured_endpoint(
             extracted += 1
         elif status == "skipped":
             skipped += 1
+            if is_no_fulltext_skip_reason(result.get("reason")):
+                runtime_no_fulltext += 1
         else:
             failed += 1
 
@@ -2522,8 +2572,13 @@ async def extract_structured_endpoint(
     available: int = (await s.execute(count_q)).scalar_one()
 
     log.info(
-        "extract_structured pid=%d: processed=%d extracted=%d skipped=%d failed=%d available=%d",
-        pid, processed, extracted, skipped, failed, available,
+        "extract_structured pid=%d: processed=%d extracted=%d skipped=%d failed=%d available=%d no_fulltext=%d",
+        pid, processed, extracted, skipped, failed, available, no_fulltext + runtime_no_fulltext,
+    )
+    no_fulltext_total = no_fulltext + runtime_no_fulltext
+    summary = (
+        f"跳过 {no_fulltext_total} 篇：无全文附件（仅题录），可先在文献库补全文"
+        if no_fulltext_total else None
     )
     return ExtractStructuredResult(
         processed=processed,
@@ -2531,6 +2586,8 @@ async def extract_structured_endpoint(
         skipped=skipped,
         failed=failed,
         available=available,
+        noFulltext=no_fulltext_total,
+        summary=summary,
     )
 
 

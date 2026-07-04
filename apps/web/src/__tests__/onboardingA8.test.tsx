@@ -40,6 +40,16 @@ vi.mock("../api/agentHooks", async (importOriginal) => {
   };
 });
 
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: 7, email: "qa@example.com" },
+    isLoading: false,
+    isAuthenticated: true,
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 // 导入需放在 mock 之后
 import { ProjectsPage, formatDate } from "../pages/ProjectsPage";
 
@@ -216,6 +226,7 @@ describe("WelcomeTour 新手指南浮层", () => {
   it("open=true 渲染对话框 + 五步说明", () => {
     render(<WelcomeTour open onClose={vi.fn()} />);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Aria Review/)).toBeInTheDocument();
     // 五步 label（在 hero/stage 之外的浮层内）
     expect(screen.getByText("导入")).toBeInTheDocument();
     expect(screen.getByText("综述")).toBeInTheDocument();
@@ -253,6 +264,17 @@ describe("WelcomeTour 新手指南浮层", () => {
     expect(hasOnboarded()).toBe(true);
     let stored: string | null = null;
     try { stored = localStorage.getItem("bibliocn.onboarded"); } catch { /* noop */ }
+    expect(stored).toBe("1");
+  });
+
+  it("hasOnboarded：传入用户时按用户维度持久化", () => {
+    const user = { id: 42, email: "user@example.com" };
+    expect(hasOnboarded(user)).toBe(false);
+    markOnboarded(user);
+    expect(hasOnboarded(user)).toBe(true);
+    expect(hasOnboarded({ id: 43, email: "other@example.com" })).toBe(false);
+    let stored: string | null = null;
+    try { stored = localStorage.getItem("bibliocn.onboarded.42"); } catch { /* noop */ }
     expect(stored).toBe("1");
   });
 
@@ -302,6 +324,7 @@ describe("ProjectsPage 欢迎 hero", () => {
     });
     renderPage();
     expect(screen.queryByLabelText("平台介绍")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByLabelText("工作流提示")).toBeInTheDocument();
     expect(screen.getByText("项目甲")).toBeInTheDocument();
   });

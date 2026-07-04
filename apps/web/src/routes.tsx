@@ -29,6 +29,13 @@ import { RouteLoadingFallback } from "./components/RouteFallback";
 // 壳层
 import { ProjectShell } from "./components/shell/ProjectShell";
 
+// 认证（Phase B）：登录/注册页 + 路由守卫
+import { RequireAuth } from "./components/AuthGate";
+import { LoginPage } from "./pages/LoginPage";
+
+// 公开落地页（未登录访问 / 的着陆点，设计见 docs/welcome-page-design.md）
+const WelcomePage = lazy(() => import("./pages/WelcomePage").then((m) => ({ default: m.WelcomePage })));
+
 const ChatWorkbench = lazy(() => import("./pages/ChatWorkbench").then((m) => ({ default: m.ChatWorkbench })));
 const LibraryView = lazy(() => import("./pages/LibraryView").then((m) => ({ default: m.LibraryView })));
 const AnalysisView = lazy(() => import("./pages/AnalysisView").then((m) => ({ default: m.AnalysisView })));
@@ -76,6 +83,12 @@ function NotFound() {
 export function AppRoutes() {
   return (
     <Routes>
+      {/* 公开落地页 + 登录 / 注册（未登录可访问） */}
+      <Route path="/welcome" element={routePage(<WelcomePage />)} />
+      <Route path="/login" element={routePage(<LoginPage />)} />
+
+      {/* 受保护路由组：未登录 → 跳 /login（RequireAuth 生产生效，DEV 放行 e2e） */}
+      <Route element={<RequireAuth />}>
       {/* 语料工作台 landing（内嵌 ProjectsPage：我的项目 + 新建 SLR 项目） */}
       <Route path="/" element={<WorkbenchLayout />} />
 
@@ -104,6 +117,7 @@ export function AppRoutes() {
 
       {/* 全局设置 */}
       <Route path="/settings" element={routePage(<SettingsPage />)} />
+      </Route>
 
       {/* 开发/联调路由（仅 DEV；prod 构建里此分支为死代码被消除） */}
       {import.meta.env.DEV && DevRoutes && (

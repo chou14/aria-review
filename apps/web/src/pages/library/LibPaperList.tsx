@@ -7,9 +7,9 @@
  * - 顶部「导入文献」按钮
  * - 「进入筛选模式」开关
  */
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { BackfillMetadataResult, ExtractStructuredResult, InclusionStatus, ProjectPaperItem } from "../../api/client";
+import type { BackfillMetadataResult, ExtractStructuredResult, FulltextBackfillResult, InclusionStatus, ProjectPaperItem } from "../../api/client";
 import type { ExtractionFilter, SortDir, SortField } from "../LibraryView";
 import { PaperStatusBadges } from "../../components/PaperStatusBadges";
 import { ErrMsg } from "../../lib/ui";
@@ -68,20 +68,34 @@ interface Props {
   extractionFilter: ExtractionFilter;
   onExtractionFilter: (f: ExtractionFilter) => void;
   isBackfilling: boolean;
+  isFulltextBackfilling?: boolean;
   isExtracting: boolean;
   backfillResult: BackfillMetadataResult | null;
+  fulltextBackfillResult?: FulltextBackfillResult | null;
   extractResult: ExtractStructuredResult | null;
   backfillError?: unknown;
+  fulltextBackfillError?: unknown;
   extractError?: unknown;
   onBackfill: () => void;
+  onFulltextBackfill?: () => void;
   onExtract: () => void;
   onClearBackfillResult: () => void;
+  onClearFulltextBackfillResult?: () => void;
   onClearExtractResult: () => void;
 }
 
 function SortIcon({ field, sortField, sortDir }: { field: SortField; sortField: SortField; sortDir: SortDir }) {
   if (field !== sortField) return <span style={{ opacity: 0.3 }}>↕</span>;
   return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
+}
+
+function paperTitleById(papers: ProjectPaperItem[]): Map<number, string> {
+  const titles = new Map<number, string>();
+  for (const p of papers) {
+    const title = (p.title || "").trim();
+    if (title) titles.set(p.paperId, title);
+  }
+  return titles;
 }
 
 export function LibPaperList({
@@ -102,14 +116,19 @@ export function LibPaperList({
   extractionFilter,
   onExtractionFilter,
   isBackfilling,
+  isFulltextBackfilling = false,
   isExtracting,
   backfillResult,
+  fulltextBackfillResult = null,
   extractResult,
   backfillError,
+  fulltextBackfillError,
   extractError,
   onBackfill,
+  onFulltextBackfill,
   onExtract,
   onClearBackfillResult,
+  onClearFulltextBackfillResult,
   onClearExtractResult,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -125,7 +144,9 @@ export function LibPaperList({
   const hasSomeSelected = selected.size > 0;
   const isFiltered = papers.length !== allPapers.length;
   const backfillDisplayError = withFriendlyError(backfillError, "AI 补全元数据失败，请重试。");
+  const fulltextBackfillDisplayError = withFriendlyError(fulltextBackfillError, "补全文失败，请重试。");
   const extractDisplayError = withFriendlyError(extractError, "AI 解析结构化字段失败，请重试。");
+  const paperTitles = useMemo(() => paperTitleById(allPapers), [allPapers]);
 
   return (
     <>
@@ -151,6 +172,16 @@ export function LibPaperList({
           style={{ fontSize: "0.85rem", padding: "0.4rem 0.85rem" }}
         >
           {isBackfilling ? "补全中…" : "AI 补全元数据"}
+        </button>
+        <button
+          className="btn"
+          onClick={onFulltextBackfill}
+          disabled={isFulltextBackfilling || !onFulltextBackfill}
+          aria-busy={isFulltextBackfilling}
+          title="为项目内有 Sciverse doc_id 且尚无全文的文献批量拉取全文"
+          style={{ fontSize: "0.85rem", padding: "0.4rem 0.85rem" }}
+        >
+          {isFulltextBackfilling ? "补全文中…" : "补全文"}
         </button>
         <button
           className="btn"
@@ -194,6 +225,57 @@ export function LibPaperList({
           action={
             <button className="btn" onClick={onBackfill} disabled={isBackfilling}>
               重试补全
+            </button>
+          }
+        />
+      )}
+      {fulltextBackfillResult && (
+        <div className="lib-ai-feedback" role="status" aria-live="polite">
+          <span>
+            补全文：拉取 <strong>{fulltextBackfillResult.fetched}</strong> 篇 / 跳过{" "}
+            {fulltextBackfillResult.skipped} / 失败 {fulltextBackfillResult.failed.length}
+            {fulltextBackfillResult.remaining > 0 && (
+              <span className="muted">（剩余 {fulltextBackfillResult.remaining} 篇，可再次点击）</span>
+            )}
+          </span>
+          {fulltextBackfillResult.failed.length > 0 && (
+            <div className="candidate-failed-panel">
+              <details className="candidate-failed-details">
+                <summary>查看失败明细</summary>
+                <ul>
+                  {fulltextBackfillResult.failed.map((item, index) => {
+                    const title = paperTitles.get(item.paperId);
+                    return (
+                      <li key={`${item.paperId}-${index}`}>
+                        <span className="candidate-failed-title">
+                          {title ?? `paperId ${item.paperId}`}
+                        </span>
+                        <span className="candidate-failed-reason">
+                          {title ? `#${item.paperId}：${item.reason}` : item.reason}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            </div>
+          )}
+          <button
+            className="btn-close-feedback"
+            onClick={onClearFulltextBackfillResult}
+            aria-label="关闭补全文反馈"
+            style={{ marginLeft: "0.5rem", fontSize: "0.8rem", cursor: "pointer", background: "none", border: "none", color: "var(--ink-3)" }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {fulltextBackfillDisplayError && (
+        <ErrMsg
+          error={fulltextBackfillDisplayError}
+          action={
+            <button className="btn" onClick={onFulltextBackfill} disabled={isFulltextBackfilling}>
+              重试补全文
             </button>
           }
         />
@@ -382,6 +464,8 @@ export function LibPaperList({
                   <PaperStatusBadges
                     hasPdf={p.hasPdf}
                     ocrStatus={p.ocrStatus}
+                    sciverseDocId={p.sciverseDocId}
+                    hasReadableFulltext={p.hasReadableFulltext ?? p.hasFulltext ?? p.fulltextAvailable}
                   />
                   {/* 纳排状态徽章 */}
                   <StatusBadge status={p.inclusionStatus as InclusionStatus} />

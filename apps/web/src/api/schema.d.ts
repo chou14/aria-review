@@ -1223,6 +1223,26 @@ export interface paths {
         patch: operations["patchGap"];
         trace?: never;
     };
+    "/projects/{pid}/papers/fulltext:backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Backfill Sciverse Fulltext Endpoint
+         * @description 批量为项目内 Sciverse doc_id 文献补全文。
+         */
+        post: operations["backfill_sciverse_fulltext_endpoint_projects__pid__papers_fulltext_backfill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2146,25 +2166,48 @@ export interface components {
             };
             issues: components["schemas"]["QualityIssue"][];
         };
+        /**
+         * FromSearchCandidate
+         * @description 单条检索候选，title 必填，其余可选。
+         */
         FromSearchCandidate: {
+            /** Candidateid */
             candidateId?: string | null;
+            /** Title */
             title: string;
+            /** Doi */
             doi?: string | null;
+            /** Authors */
             authors?: string[];
+            /** Year */
             year?: number | null;
+            /** Abstract */
             abstract?: string | null;
+            /** Keywords */
             keywords?: string | null;
+            /** Containertitle */
             containerTitle?: string | null;
+            /** Url */
             url?: string | null;
+            /** Openalexid */
             openalexId?: string | null;
+            /** Source */
             source?: string | null;
+            /** Provider */
             provider?: string | null;
+            /** Sciversedocid */
             sciverseDocId?: string | null;
+            /** Sciverseuniqueid */
             sciverseUniqueId?: string | null;
+            /** Citedbycount */
+            citedByCount?: number | string | null;
+            /** References */
             references?: string[];
+            /** Externalids */
             externalIds?: {
                 [key: string]: unknown;
             }[];
+            /** Raw */
             raw?: {
                 [key: string]: unknown;
             } | null;
@@ -2181,17 +2224,42 @@ export interface components {
             /** @description 单条入库失败原因 */
             reason: string;
         };
+        /**
+         * FromSearchResult
+         * @description POST /projects/{pid}/papers/from-search 响应体。
+         */
         FromSearchResult: {
-            /** @description 本次新导入（首次关联到项目）的文献数 */
+            /**
+             * Imported
+             * @description 本次新导入（首次关联到项目）的文献数
+             */
             imported: number;
-            /** @description 幂等跳过（paper 已存在于项目）的文献数 */
+            /**
+             * Skipped
+             * @description 幂等跳过（paper 已存在于项目）的文献数
+             */
             skipped: number;
-            /** @description 处理失败的候选明细（单条异常，不影响其他候选） */
-            failed: components["schemas"]["FromSearchFailedItem"][];
-            /** @description 处理失败的候选数，等于 failed.length */
+            /**
+             * Failed
+             * @description 处理失败的候选明细（单条异常，不影响其他候选）
+             */
+            failed?: components["schemas"]["FromSearchFailedItem"][];
+            /**
+             * Failedcount
+             * @description 处理失败的候选数，等于 failed.length
+             * @default 0
+             */
             failedCount: number;
-            /** @description 所有成功入库的 paper DB id（含 imported + skipped 两类） */
-            paperIds: number[];
+            /**
+             * Paperids
+             * @description 所有成功入库的 paper DB id（含 imported + skipped 两类）
+             */
+            paperIds?: number[];
+            /**
+             * Fulltexteligiblepaperids
+             * @description 本次成功入库/命中的、带 Sciverse doc_id 的 paper DB id
+             */
+            fulltextEligiblePaperIds?: number[];
         };
         SciverseSettingsPayload: {
             /** @description Sciverse API Base URL；为空时使用服务端 SCIVERSE_BASE_URL。 */
@@ -2307,41 +2375,81 @@ export interface components {
             /** @description True=强制重新抽取（覆盖已有 extraction）；False=跳过已有 */
             reextract?: boolean;
         };
+        /**
+         * ExtractStructuredResult
+         * @description POST /projects/{pid}/papers/extract-structured 响应体。
+         */
         ExtractStructuredResult: {
-            /** @description 本次处理的文献总数 */
+            /**
+             * Processed
+             * @description 本次处理的文献总数
+             */
             processed: number;
-            /** @description 成功抽取（新建或更新）的文献数 */
+            /**
+             * Extracted
+             * @description 成功抽取（新建或更新）的文献数
+             */
             extracted: number;
-            /** @description 跳过（无 markdown/已有 extraction 且未强制重提取）的文献数 */
+            /**
+             * Skipped
+             * @description 跳过（无 markdown/已有 extraction 且未强制重提取）的文献数
+             */
             skipped: number;
-            /** @description 处理失败（LLM 错误/JSON 解析失败/DB 错误）的文献数 */
+            /**
+             * Failed
+             * @description 处理失败（LLM 错误/JSON 解析失败/DB 错误）的文献数
+             */
             failed: number;
-            /** @description 处理后仍待处理的篇数（剩余）：OCR done 且尚无 extraction 的文献数，reextract=true 时为 OCR done 总数，不受 limit 截断 */
+            /**
+             * Available
+             * @description 处理后仍待处理的篇数（剩余）：OCR done 且尚无 extraction 的文献数，reextract=true 时为 OCR done 总数，不受 limit 截断
+             */
             available: number;
+            /**
+             * Nofulltext
+             * @description 项目内被跳过的无全文附件（仅题录）文献数
+             * @default 0
+             */
+            noFulltext: number;
+            /**
+             * Summary
+             * @description 面向用户的批处理说明
+             */
+            summary?: string | null;
         };
-        /** @description 单篇文献详情，以 services/agent/app/schemas.py 的 PaperDetail Pydantic 模型为准。 extraction 字段为可选，无 paper_extraction 记录时为 null。 */
+        /** PaperDetail */
         PaperDetail: {
-            /** @description 文献 DB 主键 */
+            /** Paperid */
             paperId: number;
-            /** @description 文献标题 */
+            /** Title */
             title?: string | null;
-            /** @description 作者列表（CSL-JSON 格式，元素可为字符串或含 family/given/literal 的对象） */
+            /** Creators */
             creators?: unknown[];
-            /** @description DOI 标识符 */
+            /** Doi */
             doi?: string | null;
-            /** @description 摘要正文 */
+            /** Abstract */
             abstract?: string | null;
-            /** @description 用户标签列表 */
+            /** Tags */
             tags?: string[];
-            /** @description 用户笔记列表 */
+            /** Notes */
             notes?: unknown[];
             /**
-             * @description 纳排状态
+             * Inclusionstatus
              * @enum {string}
              */
             inclusionStatus: "candidate" | "included" | "excluded" | "maybe";
-            /** @description LLM 结构化抽取结果；无抽取记录时为 null */
             extraction?: components["schemas"]["PaperExtractionDto"] | null;
+            /**
+             * Sciversedocid
+             * @description Sciverse 全文 doc_id（存在即可拉取全文）
+             */
+            sciverseDocId?: string | null;
+            /**
+             * Hasreadablefulltext
+             * @description 是否已有可读 markdown 全文附件（GAP 精读前置条件）
+             * @default false
+             */
+            hasReadableFulltext: boolean;
         };
         /**
          * @description GAP 透镜（概念/方法/理论；领域无关）
@@ -2490,6 +2598,57 @@ export interface components {
         };
         /** @description HITL 决策请求（codex B1-P2：用 oneOf 在契约层锁死「revise 必带 statement」）。 accept/reject 不带 statement；revise 必带非空 statement。 */
         GapPatchRequest: components["schemas"]["GapAcceptReject"] | components["schemas"]["GapRevise"];
+        /** SciverseBackfillFulltextRequest */
+        SciverseBackfillFulltextRequest: {
+            /**
+             * Paperids
+             * @description 可选：只在这些 paper id 的交集内补全文
+             */
+            paperIds?: number[] | null;
+            /**
+             * Maxpapers
+             * @description 本次最多处理的候选论文数
+             * @default 50
+             */
+            maxPapers: number;
+            /**
+             * Excludepaperids
+             * @description 可选：跳过这些 paper id（前端多轮循环时传已失败项，避免失败项挡住后续候选）
+             */
+            excludePaperIds?: number[] | null;
+        };
+        /** SciverseBackfillFulltextResult */
+        SciverseBackfillFulltextResult: {
+            /**
+             * Total
+             * @description 本次条件下可补全文的论文总数
+             */
+            total: number;
+            /**
+             * Fetched
+             * @description 成功拉取并落库全文的论文数
+             */
+            fetched: number;
+            /** Failed */
+            failed?: components["schemas"]["SciverseBackfillFailedItem"][];
+            /**
+             * Skipped
+             * @description 因 maxPapers 上限本次未处理的论文数
+             */
+            skipped: number;
+            /**
+             * Remaining
+             * @description 仍有资格但本次未处理的论文数；>0 时可继续调用
+             */
+            remaining: number;
+        };
+        /** SciverseBackfillFailedItem */
+        SciverseBackfillFailedItem: {
+            /** Paperid */
+            paperId: number;
+            /** Reason */
+            reason: string;
+        };
     };
     responses: never;
     parameters: {
@@ -5110,6 +5269,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrNotFound"];
                 };
+            };
+        };
+    };
+    backfill_sciverse_fulltext_endpoint_projects__pid__papers_fulltext_backfill_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Sciverse-Base-URL"?: string;
+                "X-Sciverse-Token"?: string;
+            };
+            path: {
+                pid: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SciverseBackfillFulltextRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SciverseBackfillFulltextResult"];
+                };
+            };
+            /** @description Sciverse 未配置或参数非法 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description 项目不存在 */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

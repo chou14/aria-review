@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Attachment, DocumentStructure
+from ..models import Attachment, DocumentStructure, PaperExternalId
 from ..repositories.library import get_by_id
 from ..repositories.project import list_project_papers
 
@@ -236,3 +236,57 @@ async def has_readable_fulltext(s: AsyncSession, project_id: int) -> bool:
         except Exception:  # noqa: BLE001 — 读失败视为不可读，继续找下一篇
             continue
     return False
+
+
+async def project_fulltext_diagnostics(s: AsyncSession, project_id: int) -> dict[str, int]:
+    """轻量诊断 GAP 前置条件；只查附件/外部 ID 行，不读全文文件。"""
+    pairs = await list_project_papers(s, project_id)
+    paper_ids = [paper.id if paper is not None else pp.paper_id for pp, paper in pairs]
+    if not paper_ids:
+        return {
+            "includedCount": 0,
+            "includedWithFulltext": 0,
+            "fulltextEligibleCount": 0,
+            "candidatesWithFulltextCount": 0,
+        }
+
+    fulltext_rows = (
+        await s.execute(
+            select(Attachment.paper_id)
+            .where(
+                Attachment.paper_id.in_(paper_ids),
+                Attachment.markdown_path.isnot(None),
+                Attachment.markdown_path != "",
+                Attachment.sha256.isnot(None),
+                Attachment.sha256 != "",
+            )
+            .distinct()
+        )
+    ).all()
+    with_fulltext = {int(row[0]) for row in fulltext_rows}
+
+    doc_id_rows = (
+        await s.execute(
+            select(PaperExternalId.paper_id)
+            .where(
+                PaperExternalId.paper_id.in_(paper_ids),
+                PaperExternalId.provider == "sciverse",
+                PaperExternalId.id_type == "doc_id",
+            )
+            .distinct()
+        )
+    ).all()
+    with_doc_id = {int(row[0]) for row in doc_id_rows}
+
+    included_ids = {
+        int(paper.id if paper is not None else pp.paper_id)
+        for pp, paper in pairs
+        if pp.inclusion_status == "included"
+    }
+    non_included_ids = set(paper_ids) - included_ids
+    return {
+        "includedCount": len(included_ids),
+        "includedWithFulltext": len(included_ids & with_fulltext),
+        "fulltextEligibleCount": len(with_doc_id - with_fulltext),
+        "candidatesWithFulltextCount": len(non_included_ids & with_fulltext),
+    }

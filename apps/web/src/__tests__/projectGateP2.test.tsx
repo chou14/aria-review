@@ -12,6 +12,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../api/client";
 import { ProjectGate } from "../components/ProjectGate";
 
 const {
@@ -24,6 +25,7 @@ const {
   mockUseVerifyGap,
   mockUseGapVerdict,
   mockUsePatchGap,
+  mockUseAiJob,
 } = vi.hoisted(() => ({
   mockUseProject: vi.fn(),
   mockUseHealth: vi.fn(),
@@ -34,6 +36,7 @@ const {
   mockUseVerifyGap: vi.fn(),
   mockUseGapVerdict: vi.fn(),
   mockUsePatchGap: vi.fn(),
+  mockUseAiJob: vi.fn(),
 }));
 
 vi.mock("../api/hooks", () => ({
@@ -52,6 +55,7 @@ vi.mock("../api/agentHooks", async (importOriginal) => {
     useVerifyGap: (...args: unknown[]) => mockUseVerifyGap(...args),
     useGapVerdict: (...args: unknown[]) => mockUseGapVerdict(...args),
     usePatchGap: (...args: unknown[]) => mockUsePatchGap(...args),
+    useAiJob: (...args: unknown[]) => mockUseAiJob(...args),
   };
 });
 
@@ -94,6 +98,26 @@ function mockProjectNoCorpus() {
   });
 }
 
+function mockProjectReadyCorpus() {
+  mockUseProject.mockReturnValue({
+    data: {
+      name: "测试项目",
+      activeCorpus: {
+        corpusId: 1,
+        rCorpusId: "r-1",
+        status: "ready",
+        documentCount: 3,
+        contentHash: "h",
+        stale: false,
+      },
+      latestCorpus: null,
+    },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseHealth.mockReturnValue({ data: undefined, isError: false });
@@ -104,6 +128,7 @@ beforeEach(() => {
   mockUseVerifyGap.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false, error: null, variables: null });
   mockUseGapVerdict.mockReturnValue({ data: null, isError: false, error: null });
   mockUsePatchGap.mockReturnValue({ mutateAsync: vi.fn(), isPending: false, error: null });
+  mockUseAiJob.mockReturnValue({ data: null, isLoading: false, error: null });
   mockProjectNoCorpus();
 });
 
@@ -213,5 +238,84 @@ describe("三大页面 project 查询三态", () => {
 
     renderWithProviders(<ResearchView />, "/projects/5/research", "/projects/:pid/research");
     expect(screen.getByText(/需先在「分析」区构建就绪/)).toBeInTheDocument();
+  });
+
+  it("ResearchView discover 400 时渲染条件清单和行动按钮", () => {
+    mockProjectReadyCorpus();
+    mockUseDiscoverGaps.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new ApiError("NO_FULLTEXT", 400, "项目无可读全文语料", {
+        detail: {
+          includedCount: 1,
+          includedWithFulltext: 0,
+          fulltextEligibleCount: 2,
+          candidatesWithFulltextCount: 1,
+        },
+      }),
+    });
+
+    renderWithProviders(<ResearchView />, "/projects/5/research", "/projects/:pid/research");
+
+    expect(screen.getByText("研究空白发现条件未满足")).toBeInTheDocument();
+    expect(screen.getByText("已有纳入文献")).toBeInTheDocument();
+    expect(screen.getByText("纳入文献含可读全文")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "去文献库补全文" })).toHaveAttribute("href", "/projects/5/library");
+    expect(screen.getByRole("link", { name: "去筛选纳入" })).toHaveAttribute("href", "/projects/5/library");
+    expect(screen.getByRole("link", { name: "去上传 PDF" })).toHaveAttribute("href", "/projects/5/library");
+  });
+
+  it("ResearchView 点击核验后进入进行中态，并按 4s 轮询裁决", () => {
+    mockProjectReadyCorpus();
+    const gap = {
+      gap_id: "gap_pending",
+      lens: "method",
+      status: "draft",
+      theme: "语调披露",
+      statement: "尚待核验的 GAP",
+      confidence: 0.82,
+      supporting_papers: [{ paper_id: 1, anchor_id: "a1", quote: "支撑原文" }],
+      counter_evidence: [],
+      value_verdict: null,
+    };
+    const verifyMutate = vi.fn((
+      vars: { gapId: string },
+      opts?: { onSuccess?: (data: { verify_run_id: string }, vars: { gapId: string }, context: unknown) => void },
+    ) => {
+      opts?.onSuccess?.({ verify_run_id: "123" }, vars, undefined);
+    });
+    mockUseScratchpad.mockReturnValue({
+      data: {
+        run_id: "run_gap",
+        run_status: "done",
+        entries: [gap],
+        updated_at: "2026-07-04T00:00:00Z",
+      },
+      isLoading: false,
+      error: null,
+    });
+    mockUseVerifyGap.mockReturnValue({
+      mutate: verifyMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+      variables: null,
+    });
+    mockUseAiJob.mockReturnValue({ data: { id: 123, status: "running" }, isLoading: false, error: null });
+
+    renderWithProviders(<ResearchView />, "/projects/5/research", "/projects/:pid/research");
+
+    fireEvent.click(screen.getByText("尚待核验的 GAP"));
+    fireEvent.click(screen.getByRole("button", { name: "核验研究价值" }));
+
+    expect(verifyMutate).toHaveBeenCalledWith(
+      { gapId: "gap_pending" },
+      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
+    );
+    expect(screen.getByText(/价值核验进行中/)).toBeInTheDocument();
+    expect(screen.getByText(/每 4 秒自动刷新/)).toBeInTheDocument();
+    expect(mockUseAiJob).toHaveBeenLastCalledWith(5, 123, { enabled: true, pollMs: 4000 });
+    expect(mockUseGapVerdict).toHaveBeenLastCalledWith(5, "gap_pending", { poll: true, pollMs: 4000 });
   });
 });

@@ -57,6 +57,41 @@ describe("ValueVerdictCard", () => {
     expect(screen.getByText("无 DOI")).toBeInTheDocument();
   });
 
+  it("反向命中缺少有效相关分时不显示 0.00", () => {
+    const withoutScores: GapVerdictResult = {
+      ...verdictResultG3,
+      evidence: {
+        ...verdictResultG3.evidence,
+        reverse_search: {
+          ...verdictResultG3.evidence.reverse_search,
+          top_hits: verdictResultG3.evidence.reverse_search.top_hits.map((h) => ({ ...h, relevance: 0 })),
+        },
+      },
+    };
+    render(<ValueVerdictCard result={withoutScores} gap={null} />);
+    expect(screen.queryByText(/相关 0\.00/)).toBeNull();
+  });
+
+  it("反向命中运行时带 score 字段时用 score 展示相关分", () => {
+    const withRuntimeScore = {
+      ...verdictResultG3,
+      evidence: {
+        ...verdictResultG3.evidence,
+        reverse_search: {
+          ...verdictResultG3.evidence.reverse_search,
+          top_hits: verdictResultG3.evidence.reverse_search.top_hits.map((h, i) => ({
+            ...h,
+            relevance: 0,
+            score: i === 0 ? 0.72 : undefined,
+          })),
+        },
+      },
+    } as unknown as GapVerdictResult;
+    render(<ValueVerdictCard result={withRuntimeScore} gap={null} />);
+    expect(screen.getByText("相关 0.72")).toBeInTheDocument();
+    expect(screen.queryByText(/相关 0\.00/)).toBeNull();
+  });
+
   it("HITL：采纳/驳回 触发 onDecide", () => {
     const onDecide = vi.fn();
     render(<ValueVerdictCard result={verdictResultG2} gap={gapVerifiedMethod} onDecide={onDecide} />);

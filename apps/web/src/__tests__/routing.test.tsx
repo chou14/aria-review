@@ -46,7 +46,18 @@ vi.mock("../api/agentHooks", () => ({
   useGlobalLibraryStats: () => ({ data: null, isLoading: false, error: null }),
   // P3-T2/T4: AI 解析 hooks
   useBackfillMetadata: () => ({ mutate: vi.fn(), isPending: false, data: undefined, error: null }),
+  useBackfillFulltext: () => ({ mutateAsync: vi.fn(), isPending: false, data: undefined, error: null, reset: vi.fn() }),
   useExtractStructured: () => ({ mutate: vi.fn(), isPending: false, data: undefined, error: null }),
+}));
+
+vi.mock("../auth/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: 1, email: "qa@example.com" },
+    isLoading: false,
+    isAuthenticated: true,
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  }),
 }));
 
 // ---- mock client（避免 AgentChat 真实网络请求） ----

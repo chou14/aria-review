@@ -5,15 +5,16 @@
  *
  * A8 新手指导接线：
  *   - 项目名行加常驻「? 新手指南」入口（GuideButton），点击重开 WelcomeTour。
- *   - 首次进入平台（localStorage 无 onboarded 标记）自动弹一次 WelcomeTour。
+ *   - 自动弹窗只留给无项目账号的 ProjectsPage；项目内只保留手动入口，避免老账号反复被打断。
  *   - 区域主体顶部渲染 NextStepGuide（上下文「下一步」行动卡，可本会话关闭）。
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Outlet, useNavigate, useParams } from "react-router-dom";
 import { useProject } from "../../api/agentHooks";
+import { useAuth } from "../../auth/AuthContext";
 import { ErrMsg, Loading } from "../../lib/ui";
 import { NextStepGuide } from "../onboarding/NextStepGuide";
-import { GuideButton, WelcomeTour, hasOnboarded, markOnboarded } from "../onboarding/WelcomeTour";
+import { GuideButton, WelcomeTour, markOnboarded } from "../onboarding/WelcomeTour";
 import { ProjectNav } from "./ProjectNav";
 import { StageBar } from "./StageBar";
 
@@ -21,19 +22,17 @@ export function ProjectShell() {
   const { pid } = useParams<{ pid: string }>();
   const pidNum = Number(pid);
   const navigate = useNavigate();
+  const { user } = useAuth();
   // 非法路由参数守卫 (codex M0-P2-4): /projects/foo → 不发 NaN 请求。
   const validPid = Number.isFinite(pidNum) && pidNum > 0;
   const { data, isLoading, error } = useProject(validPid ? pidNum : 0);
 
-  // A8: 新手指南浮层开关。首次进入平台（localStorage 无标记）自动弹一次。
+  // A8: 新手指南浮层开关。项目内只手动打开，老账号登录不再自动弹。
   const [tourOpen, setTourOpen] = useState(false);
-  useEffect(() => {
-    if (!hasOnboarded()) setTourOpen(true);
-  }, []);
 
   function closeTour() {
     setTourOpen(false);
-    markOnboarded();
+    markOnboarded(user);
   }
 
   if (!validPid) {

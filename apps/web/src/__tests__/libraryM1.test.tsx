@@ -323,4 +323,17 @@ describe("ImportDialog", () => {
     expect(screen.getByText("5")).toBeInTheDocument(); // imported
     expect(screen.getByText(/重复跳过：2/)).toBeInTheDocument();
   });
+
+  it("默认勾选上传后直接纳入", () => {
+    render(
+      <ImportDialog
+        importing={false}
+        result={undefined}
+        error={null}
+        onImport={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("checkbox", { name: /上传后直接纳入/ })).toBeChecked();
+  });
 });

@@ -40,7 +40,10 @@ source("R/ingest_records.R")
     out
   }, error = function(e) {
     res$status <- 502
-    list(code = "ANALYSIS_FAILED", message = "分析失败")
+    # 透传具体错误(截断)：空洞的"分析失败"让用户无从自救(生产 QA 实例: 全空 PY)
+    msg <- substr(conditionMessage(e), 1, 300)
+    list(code = "ANALYSIS_FAILED",
+         message = if (nzchar(msg)) paste0("分析失败：", msg) else "分析失败")
   })
 }
 

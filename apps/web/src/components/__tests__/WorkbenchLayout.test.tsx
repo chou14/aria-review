@@ -19,6 +19,16 @@ vi.mock("../../api/agentHooks", () => ({
   useCreateProject: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
+vi.mock("../../auth/AuthContext", () => ({
+  useAuth: () => ({
+    user: { id: 1, email: "qa@example.com" },
+    isLoading: false,
+    isAuthenticated: true,
+    refresh: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 import { WorkbenchLayout } from "../workbench/WorkbenchLayout";
 
 function renderWorkbench() {

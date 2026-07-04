@@ -62,6 +62,13 @@ describe("EmptyGuide", () => {
     expect(screen.getAllByText(/研究空白/).length).toBeGreaterThan(0);
   });
 
+  it("快速开始区「检索文献」按钮在无障碍树中唯一", () => {
+    render(<EmptyGuide onFill={() => {}} stats={null} onNavigate={() => {}} />);
+
+    expect(screen.getAllByRole("button", { name: "检索文献" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "检索建库" })).toBeInTheDocument();
+  });
+
   it("「研究空白」导航卡点击 → onNavigate('research')，不走 onFill", () => {
     const onFill = vi.fn();
     const onNavigate = vi.fn();

@@ -31,7 +31,12 @@ from sqlalchemy import or_, select
 from ..harness.tools import BaseTool, ToolResult
 from ..llm import get_llm_client
 from ..models import Attachment, Paper, PaperExtraction, ProjectPaper
-from ..services.extraction import extract_paper_structured
+from ..services.extraction import (
+    count_no_fulltext_candidates,
+    extract_paper_structured,
+    fulltext_paper_ids_subquery,
+    is_no_fulltext_skip_reason,
+)
 from ..services.metadata_backfill import backfill_paper_metadata
 
 
@@ -120,15 +125,7 @@ class ExtractTool(BaseTool):
     async def _structured(
         self, session_factory, llm, action, project_id, limit, *, reextract,
     ) -> ToolResult:
-        att_sq = (
-            select(Attachment.paper_id)
-            .where(
-                Attachment.mineru_status == "done",
-                Attachment.markdown_path.isnot(None),
-            )
-            .distinct()
-            .scalar_subquery()
-        )
+        att_sq = fulltext_paper_ids_subquery()
         base_where = [ProjectPaper.project_id == project_id, Paper.id.in_(att_sq)]
         if not reextract:
             base_where.append(
@@ -136,8 +133,14 @@ class ExtractTool(BaseTool):
             )
 
         async with session_factory() as s:
+            no_fulltext = await count_no_fulltext_candidates(
+                s,
+                project_id,
+                reextract=reextract,
+            )
             paper_ids = await self._batch_ids(s, base_where, limit)
             processed = extracted = skipped = failed = 0
+            runtime_no_fulltext = 0
             for pid in paper_ids:
                 paper = await s.get(Paper, pid)
                 if paper is None:
@@ -150,20 +153,28 @@ class ExtractTool(BaseTool):
                     extracted += 1
                 elif st == "skipped":
                     skipped += 1
+                    if is_no_fulltext_skip_reason(r.get("reason")):
+                        runtime_no_fulltext += 1
                 else:
                     failed += 1
             available = await self._count(s, base_where)
 
+        no_fulltext_total = no_fulltext + runtime_no_fulltext
         row = {
             "processed": processed,
             "extracted": extracted,
             "skipped": skipped,
             "failed": failed,
             "available": available,
+            "no_fulltext": no_fulltext_total,
         }
+        no_fulltext_note = (
+            f"跳过 {no_fulltext_total} 篇：无全文附件（仅题录），可先在文献库补全文。"
+            if no_fulltext_total else ""
+        )
         summary = (
             f"结构化抽取：处理 {processed} 篇，成功 {extracted}，跳过 {skipped}，"
-            f"失败 {failed}；待抽取 {available} 篇。"
+            f"失败 {failed}；待抽取 {available} 篇。{no_fulltext_note}"
         )
         return self._ok(action, [row], source="db", summary=summary)
 

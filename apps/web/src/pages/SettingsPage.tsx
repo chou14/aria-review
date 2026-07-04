@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { pingImage, pingLlm, pingSciverse } from "../api/client";
+import { ApiError, authRedeem, pingImage, pingLlm, pingSciverse } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import {
   PROVIDER_DEFAULT_BASE_URLS,
   PROVIDER_DEFAULT_MODELS,
@@ -46,6 +47,27 @@ function formatConnectionError(error: unknown, fallback: string): string {
 }
 
 export function SettingsPage() {
+  const { user, logout, refresh } = useAuth();
+  const [redeemCode, setRedeemCode] = useState("");
+  const [redeemMsg, setRedeemMsg] = useState("");
+  const [redeemBusy, setRedeemBusy] = useState(false);
+
+  async function handleRedeem() {
+    if (!redeemCode.trim()) return;
+    setRedeemBusy(true);
+    setRedeemMsg("");
+    try {
+      const r = await authRedeem(redeemCode.trim());
+      setRedeemMsg(`兑换成功，+${r.credits_added} 积分，当前余额 ${r.balance}`);
+      setRedeemCode("");
+      refresh();
+    } catch (e) {
+      setRedeemMsg(e instanceof ApiError ? e.message : "兑换失败");
+    } finally {
+      setRedeemBusy(false);
+    }
+  }
+
   const { settings, save, clear } = useLlmSettings();
   const {
     settings: sciverseSettings,
@@ -215,7 +237,67 @@ export function SettingsPage() {
     <div className="container" style={{ padding: "2rem 1.5rem", maxWidth: 640 }}>
       <h2>设置</h2>
 
-      <div className="card" style={{ marginTop: "1rem" }}>
+      {user && (
+        <div className="card" style={{ marginTop: "1rem" }}>
+          <h3 style={{ marginTop: 0 }}>账户</h3>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: "1.25rem",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600 }}>{user.email}</div>
+              <div className="muted" style={{ fontSize: "0.82rem" }}>
+                积分余额：<strong>{user.credits}</strong>
+                {user.role === "admin" ? " · 管理员" : ""}
+              </div>
+            </div>
+            <button type="button" className="btn btn-ghost" onClick={() => void logout()}>
+              登出
+            </button>
+          </div>
+
+          <label
+            htmlFor="redeem-code"
+            style={{ display: "block", fontWeight: 600, marginBottom: "0.35rem", fontSize: "0.9rem" }}
+          >
+            兑换码充值积分
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <input
+              id="redeem-code"
+              type="text"
+              value={redeemCode}
+              placeholder="输入兑换码"
+              onChange={(e) => setRedeemCode(e.target.value)}
+              autoComplete="off"
+              style={{ flex: 1, minWidth: 180, boxSizing: "border-box" }}
+            />
+            <button type="button" className="btn" disabled={redeemBusy} onClick={() => void handleRedeem()}>
+              {redeemBusy ? "兑换中…" : "兑换"}
+            </button>
+          </div>
+          {redeemMsg && (
+            <p
+              role="status"
+              style={{
+                marginTop: "0.6rem",
+                fontSize: "0.84rem",
+                color: redeemMsg.startsWith("兑换成功") ? "var(--green, #16a34a)" : "crimson",
+              }}
+            >
+              {redeemMsg}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: "1.25rem" }}>
         <h3 style={{ marginTop: 0 }}>LLM 配置</h3>
         <p
           className="muted"

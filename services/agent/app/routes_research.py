@@ -29,7 +29,7 @@ from .repositories import gaps as gaps_repo
 from .run_status import normalize_run_status
 from .repositories import project as project_repo
 from .review.gap_discover import discover_gaps
-from .review.load import has_readable_fulltext, load_project_corpus
+from .review.load import has_readable_fulltext, load_project_corpus, project_fulltext_diagnostics
 from .review.read import summarize_papers
 from .review.value_check import ValueCheckError, verify_gap_value
 
@@ -70,16 +70,16 @@ class GapPatchRequest(BaseModel):
 
     oneOf 一致性在 patch_gap handler 前置校验（先于 gap 存在性），返回可预测的 422。
     """
-    human_decision: Literal["accept", "reject", "revise"]
+    action: Literal["accept", "reject", "revise"]
     note: Optional[str] = None
     statement: Optional[str] = None
 
 
 def _validate_patch_oneof(body: "GapPatchRequest") -> None:
     """§2.4-3 oneOf：revise 必带非空 statement；accept/reject 不应带 statement。fail-loud 422。"""
-    if body.human_decision == "revise" and not (body.statement or "").strip():
+    if body.action == "revise" and not (body.statement or "").strip():
         raise ApiError(422, "VALIDATION_ERROR", "revise 必须提供非空 statement")
-    if body.human_decision != "revise" and body.statement:
+    if body.action != "revise" and body.statement:
         raise ApiError(422, "VALIDATION_ERROR", "accept/reject 不应带 statement")
 
 
@@ -245,6 +245,43 @@ async def _require_project(s: Any, pid: int) -> None:
         raise ApiError(404, "PROJECT_NOT_FOUND", f"项目 {pid} 不存在")
 
 
+def _no_corpus_message(diag: dict[str, int]) -> str:
+    included = diag.get("includedCount", 0)
+    included_fulltext = diag.get("includedWithFulltext", 0)
+    sciverse_eligible = diag.get("fulltextEligibleCount", 0)
+    candidate_fulltext = diag.get("candidatesWithFulltextCount", 0)
+    stats = (
+        f"当前统计：已纳入 {included} 篇，已纳入且有全文 {included_fulltext} 篇，"
+        f"可自动补 Sciverse 全文 {sciverse_eligible} 篇，已有全文但未纳入 {candidate_fulltext} 篇。"
+    )
+    if candidate_fulltext > 0:
+        return (
+            "项目暂无可用于 GAP 发现的已纳入全文语料。"
+            f"{stats}"
+            "你已经上传并解析了全文，但这些文献尚未纳入；请到【文献库】-【筛选】"
+            "把该文献标记为【已纳入】，再回到【研究】重新发现研究空白。"
+        )
+    if sciverse_eligible > 0:
+        return (
+            "项目暂无可用于 GAP 发现的已纳入全文语料。"
+            f"{stats}"
+            "当前有 Sciverse 题录可自动补全文；请先在文献库点击【补全文】"
+            "或调用 fulltext:backfill，完成后把要精读的文献标记为【已纳入】。"
+        )
+    if included > 0:
+        return (
+            "项目已纳入文献，但这些文献没有可读全文附件。"
+            f"{stats}"
+            "GAP 发现需要精读全文并产生逐字溯源；请先到【文献库】上传 PDF 并完成解析，"
+            "或为 Sciverse 文献补全文。"
+        )
+    return (
+        "项目还没有已纳入的可读全文语料。"
+        f"{stats}"
+        "请先到【文献库】导入/上传文献；如已有待筛选文献，请在【筛选】中标记为【已纳入】。"
+    )
+
+
 @router.post("/projects/{pid}/corpus/{cid}/gaps:discover", status_code=202)
 async def discover(pid: int, request: Request,
                    background_tasks: BackgroundTasks,
@@ -263,8 +300,8 @@ async def discover(pid: int, request: Request,
     # 问题1 修复：同步预检该项目有无可读全文语料——无则快速失败 400，不浪费一次异步 run + LLM
     # 调用（此前 OpenAlex 元数据项目会异步跑到 load 空才 failed，用户等半天看到模糊失败）。
     if not await has_readable_fulltext(s, pid):
-        raise ApiError(400, "NO_CORPUS",
-                       "项目无可读全文语料：GAP 发现需精读全文产生逐字溯源，请先上传 PDF 并完成解析")
+        diag = await project_fulltext_diagnostics(s, pid)
+        raise ApiError(400, "NO_CORPUS", _no_corpus_message(diag), details=diag)
     max_candidates = body.max_candidates if body else 12
     # codex P2: body.topic 需 strip —— 否则 "   " 这类纯空白 truthy 会绕过派生链, 把空白
     # topic 写进 job/喂给 gap-finder。先归一化, 空白则落到 research_question/name 派生。
@@ -346,9 +383,9 @@ async def patch_gap(pid: int, body: GapPatchRequest,
     rec = await gaps_repo.get_record(s, gap_id)
     if rec is None:
         raise ApiError(404, "GAP_NOT_FOUND", f"GAP {gap_id} 不存在")
-    if body.human_decision == "accept":
+    if body.action == "accept":
         rec.status = "accepted"
-    elif body.human_decision == "reject":
+    elif body.action == "reject":
         rec.status = "rejected"
     else:  # revise
         rec.statement = body.statement
@@ -361,7 +398,7 @@ async def patch_gap(pid: int, body: GapPatchRequest,
             if job is not None:
                 await ai_job_repo.update_job(s, job, append_event={
                     "type": "hitl_decision", "gap_id": gap_id,
-                    "decision": body.human_decision, "note": body.note or "",
+                    "decision": body.action, "note": body.note or "",
                 })
     except Exception:  # noqa: BLE001
         logger.warning("[patch_gap] 留痕失败 gap=%s（不阻断）", gap_id)

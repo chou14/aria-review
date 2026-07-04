@@ -259,6 +259,8 @@ async def test_from_search_persists_sciverse_external_ids(aclient):
                 "provider": "sciverse",
                 "sciverseDocId": "doc-123",
                 "sciverseUniqueId": "uid-456",
+                "citedByCount": "42.0",
+                "references": ["R1", "R2"],
                 "externalIds": [
                     {
                         "provider": "sciverse",
@@ -274,19 +276,29 @@ async def test_from_search_persists_sciverse_external_ids(aclient):
 
     r = await c.post(f"/projects/{pid}/papers/from-search", json=payload)
     assert r.status_code == 200, r.text
-    paper_id = r.json()["paperIds"][0]
+    body = r.json()
+    paper_id = body["paperIds"][0]
+    assert body["fulltextEligiblePaperIds"] == [paper_id]
 
     async with factory() as s:
         from sqlalchemy import select
-        from app.models import PaperExternalId
+        from app.models import Paper, PaperExternalId
 
         rows = list((await s.execute(
             select(PaperExternalId).where(PaperExternalId.paper_id == paper_id)
         )).scalars().all())
+        paper = (await s.execute(select(Paper).where(Paper.id == paper_id))).scalar_one()
 
     pairs = {(row.provider, row.id_type, row.external_id) for row in rows}
     assert ("sciverse", "doc_id", "doc-123") in pairs
     assert ("sciverse", "unique_id", "uid-456") in pairs
+    assert paper.csl_json["citedByCount"] == 42
+    assert paper.csl_json["references"] == ["R1", "R2"]
+
+    r2 = await c.post(f"/projects/{pid}/papers/from-search", json=payload)
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["skipped"] == 1
+    assert r2.json()["fulltextEligiblePaperIds"] == [paper_id]
 
 
 @pytest.mark.asyncio

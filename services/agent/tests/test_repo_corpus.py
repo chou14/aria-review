@@ -184,3 +184,33 @@ async def test_build_corpus_snapshot_empty_included(session):
     q = select(CorpusPaper).where(CorpusPaper.corpus_id == corpus.id)
     rows = (await session.execute(q)).scalars().all()
     assert len(rows) == 0, "空集合不应有 corpus_paper 行"
+
+
+async def test_get_corpus_records_exports_cited_by_count_as_tc(session):
+    """csl_json.citedByCount 应导出给 R 的 TC 字段，供篇均被引/H 指数使用。"""
+    from app.repositories.library import add_paper
+    from app.repositories.project import create_project, add_paper_to_project, set_inclusion
+    from app.repositories.corpus import build_corpus_snapshot, get_corpus_records
+
+    proj = await create_project(session, {"name": "TC Export Project"})
+    p1 = await add_paper(session, {
+        "title": "Cited Paper",
+        "doi": "10.1/tc",
+        "csl_json": {"citedByCount": "17.0"},
+    })
+    p2 = await add_paper(session, {
+        "title": "Invalid Cited Paper",
+        "doi": "10.1/tc-invalid",
+        "csl_json": {"citedByCount": -3},
+    })
+    pp1 = await add_paper_to_project(session, proj.id, p1.id)
+    pp2 = await add_paper_to_project(session, proj.id, p2.id)
+    await set_inclusion(session, pp1.id, "included")
+    await set_inclusion(session, pp2.id, "included")
+
+    corpus = await build_corpus_snapshot(session, proj.id)
+    records = await get_corpus_records(session, corpus.id)
+
+    by_title = {row["title"]: row for row in records}
+    assert by_title["Cited Paper"]["TC"] == 17
+    assert "TC" not in by_title["Invalid Cited Paper"]

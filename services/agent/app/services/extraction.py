@@ -12,10 +12,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Attachment, Paper
+from ..models import Attachment, Paper, PaperExtraction, ProjectPaper
 from ..prompts import prompt_extract_structured
 from ..repositories.extraction import upsert_extraction
 from ..services.metadata_backfill import _parse_llm_json  # 复用同款健壮 JSON 解析
@@ -25,6 +26,49 @@ logger = logging.getLogger(__name__)
 _HEAD_CHARS = 10000  # 读取 Markdown 首部字符数（W5-b 比 W5-a 多读，提升抽取覆盖率）
 
 _EXTRACT_FIELDS = ("research_question", "method", "findings", "dataset", "contribution")
+
+
+def fulltext_paper_ids_subquery():
+    """项目结构化抽取可用的全文附件子查询。"""
+    return (
+        select(Attachment.paper_id)
+        .where(
+            Attachment.mineru_status == "done",
+            Attachment.markdown_path.isnot(None),
+            Attachment.markdown_path != "",
+        )
+        .distinct()
+        .scalar_subquery()
+    )
+
+
+async def count_no_fulltext_candidates(
+    s: AsyncSession,
+    project_id: int,
+    *,
+    reextract: bool = False,
+) -> int:
+    """统计项目内因无全文附件而无法结构化抽取的论文数。"""
+    fulltext_sq = fulltext_paper_ids_subquery()
+    where = [
+        ProjectPaper.project_id == project_id,
+        Paper.id.notin_(fulltext_sq),
+    ]
+    if not reextract:
+        where.append(Paper.id.notin_(select(PaperExtraction.paper_id).scalar_subquery()))
+    q = (
+        select(sa_func.count())
+        .select_from(Paper)
+        .join(ProjectPaper, ProjectPaper.paper_id == Paper.id)
+        .where(*where)
+    )
+    return int((await s.execute(q)).scalar_one())
+
+
+def is_no_fulltext_skip_reason(reason: str | None) -> bool:
+    """单篇抽取 skipped 是否属于无可读全文附件。"""
+    text = reason or ""
+    return any(key in text for key in ("markdown", "OCR", "全文"))
 
 
 async def extract_paper_structured(

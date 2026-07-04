@@ -6,6 +6,7 @@
  *   2. usePatchInclusion onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats / project / paper
  *   3. useMaterializeCorpus onSettled 失效 project / projectLibraryStats
  *   4. useAddFromSearch onSuccess 失效 projectPapers / projectLibraryStats / globalLibraryStats / project
+ *   5. useBackfillFulltext onSuccess 失效全文相关缓存
  */
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +17,7 @@ import {
   usePatchInclusion,
   useMaterializeCorpus,
   useAddFromSearch,
+  useBackfillFulltext,
 } from "./agentHooks";
 import { materializeCorpus } from "./client";
 
@@ -33,6 +35,7 @@ vi.mock("./client", async (importOriginal) => {
       documentCount: 1,
     }),
     addPapersFromSearch: vi.fn().mockResolvedValue({ imported: 1, skipped: 0, failed: [], failedCount: 0, paperIds: [1] }),
+    backfillFulltext: vi.fn().mockResolvedValue({ total: 1, fetched: 1, skipped: 0, failed: [], remaining: 0 }),
   };
 });
 
@@ -185,5 +188,37 @@ describe("useAddFromSearch — onSuccess 库统计与项目详情失效", () => 
     expect(keys).toContainEqual(["projectLibraryStats", 9]);
     expect(keys).toContainEqual(["globalLibraryStats"]);
     expect(keys).toContainEqual(["project", 9]);
+  });
+});
+
+describe("useBackfillFulltext — onSuccess 失效全文相关缓存", () => {
+  let qc: QueryClient;
+  const calls: unknown[][] = [];
+
+  beforeEach(() => {
+    calls.length = 0;
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const orig = qc.invalidateQueries.bind(qc);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    qc.invalidateQueries = (...args: any[]) => {
+      calls.push(args);
+      return orig(...args);
+    };
+  });
+
+  it("成功后失效 projectPapers / stats / project / paper(pid)", async () => {
+    const { result } = renderHook(() => useBackfillFulltext(11), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ paperIds: [1], maxPapers: 1 });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const keys = spiedKeys(calls);
+    expect(keys).toContainEqual(["projectPapers", 11]);
+    expect(keys).toContainEqual(["projectLibraryStats", 11]);
+    expect(keys).toContainEqual(["globalLibraryStats"]);
+    expect(keys).toContainEqual(["project", 11]);
+    expect(keys).toContainEqual(["paper", 11]);
   });
 });

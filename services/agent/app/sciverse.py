@@ -213,12 +213,19 @@ def _keywords(row: dict[str, Any]) -> str | None:
 
 def normalize_meta_result(row: dict[str, Any]) -> dict[str, Any]:
     """Map Sciverse meta-search row to the existing SearchCandidate shape."""
+    from .ingest.search_metadata import parse_year
+
     title = str(row.get("title") or "").strip()
     doi = row.get("doi")
     doc_id = row.get("doc_id")
     unique_id = row.get("unique_id")
     venue = row.get("publication_venue_name_unified")
-    year = row.get("publication_published_year")
+    # Sciverse 返回 year 为 float(如 2025.0)，下游 isinstance(int) 校验会整列丢弃 →
+    # 语料全空年份 → R 概览崩溃(生产 502 实例)。此处统一 int 化，date 兜底。
+    year = parse_year(
+        row.get("publication_published_year"),
+        date_hint=row.get("publication_published_date"),
+    )
     url = f"https://doi.org/{doi}" if doi else None
     external_ids: list[dict[str, Any]] = []
     if unique_id:

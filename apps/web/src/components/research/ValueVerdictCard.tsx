@@ -28,6 +28,20 @@ const METRIC_LABEL: Record<string, string> = {
   low_coupling: "低耦合",
 };
 
+type RuntimeReverseHit = GapVerdictResult["evidence"]["reverse_search"]["top_hits"][number] & {
+  score?: unknown;
+  relevance_score?: unknown;
+  similarity?: unknown;
+};
+
+function hitRelevance(hit: RuntimeReverseHit): number | null {
+  for (const key of ["relevance", "score", "relevance_score", "similarity"] as const) {
+    const value = hit[key];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
 /** 盾形图标（搬自 TrustCard，统一可信视觉）。 */
 function ShieldIcon() {
   return (
@@ -134,6 +148,8 @@ export function ValueVerdictCard({
   const rs = evidence.reverse_search;
   const bs = evidence.biblio_structure;
   const decided = gap?.status === "accepted" || gap?.status === "rejected";
+  const hitScores = rs.top_hits.map((h) => hitRelevance(h as RuntimeReverseHit));
+  const hasHitScores = hitScores.some((score) => score != null);
 
   function startRevise() {
     setDraft(gap?.statement ?? "");
@@ -181,22 +197,27 @@ export function ValueVerdictCard({
         <ReverseHitScale hit={rs.hit_count} low={verdict.thresholds.reverse_hit_low} high={verdict.thresholds.reverse_hit_high} />
         {rs.top_hits.length > 0 && (
           <ul className="vv-hits">
-            {rs.top_hits.map((h, i) => (
-              <li className="vv-hit" key={`${h.doi ?? "nodoi"}-${i}`}>
-                <span className="vv-hit-title">{h.title}</span>
-                <span className="vv-hit-meta">
-                  {h.year ?? "年份缺失"}
-                  {h.doi ? (
-                    <a className="vv-hit-doi" href={`https://doi.org/${h.doi}`} target="_blank" rel="noreferrer">
-                      {h.doi}
-                    </a>
-                  ) : (
-                    <span className="vv-hit-nodoi">无 DOI</span>
-                  )}
-                  <span className="vv-hit-rel">相关 {h.relevance.toFixed(2)}</span>
-                </span>
-              </li>
-            ))}
+            {rs.top_hits.map((h, i) => {
+              const score = hitScores[i];
+              return (
+                <li className="vv-hit" key={`${h.doi ?? "nodoi"}-${i}`}>
+                  <span className="vv-hit-title">{h.title}</span>
+                  <span className="vv-hit-meta">
+                    {h.year ?? "年份缺失"}
+                    {h.doi ? (
+                      <a className="vv-hit-doi" href={`https://doi.org/${h.doi}`} target="_blank" rel="noreferrer">
+                        {h.doi}
+                      </a>
+                    ) : (
+                      <span className="vv-hit-nodoi">无 DOI</span>
+                    )}
+                    {hasHitScores && score != null && (
+                      <span className="vv-hit-rel">相关 {score.toFixed(2)}</span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

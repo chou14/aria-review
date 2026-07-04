@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, matchPath, useLocation, useNavigate } from "react-router-dom";
 import { useHealth } from "../../api/hooks";
 import { useProjects } from "../../api/agentHooks";
+import { useAuth } from "../../auth/AuthContext";
 
 /** 后端状态指示点（原 App.tsx BackendStatus，搬入 TopBar） */
 function BackendStatus() {
@@ -42,7 +43,8 @@ function ProjectSwitcher() {
     matchPath("/projects/:pid/*", location.pathname) ??
     matchPath("/projects/:pid", location.pathname);
   const pid = match?.params?.pid;
-  const { data } = useProjects();
+  const { isAuthenticated } = useAuth();
+  const { data } = useProjects(isAuthenticated);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -111,16 +113,20 @@ function ProjectSwitcher() {
 
 /** TopBar — 全局顶部导航栏 */
 export function TopBar() {
+  // 登录/注册页与公开落地页是独立全屏品牌体验，不显示应用顶栏（含后端健康点等内部 chrome）。
+  const { pathname } = useLocation();
+  if (pathname === "/login" || pathname === "/welcome") return null;
+
   return (
     <header className="topbar">
       {/* 品牌 */}
       <div className="brand">
         <Link to="/" style={{ textDecoration: "none" }}>
           <span className="brand-mark">
-            Biblio<span className="dot">CN</span>
+            Aria Review
           </span>
         </Link>
-        <span className="brand-sub">文献计量与综述助手</span>
+        <span className="brand-sub">可信文献综述 Agent 工作台</span>
       </div>
 
       {/* 项目切换器（仅在项目上下文内显示） */}

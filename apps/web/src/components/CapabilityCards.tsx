@@ -70,7 +70,8 @@ export function CapabilityCards({ onFill, onNavigate }: CapabilityCardsProps) {
           // 导航卡缺 onNavigate 时禁用，避免可点击但无行为的死卡（codex B5-P2）
           disabled={!!cap.to && !onNavigate}
           onClick={() => (cap.to ? onNavigate?.(cap.to) : onFill({ prompt: cap.prompt }))}
-          aria-label={`${cap.icon} ${cap.title}：${cap.desc}`}
+          aria-label={cap.title}
+          title={cap.desc}
         >
           <span className="cap-icon" aria-hidden="true">
             {cap.icon}

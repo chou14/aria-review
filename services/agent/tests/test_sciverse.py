@@ -8,6 +8,7 @@ from app import main as app_main
 from app.errors import ApiError
 from app.schemas import (
     SciverseAgenticSearchRequest,
+    SciverseBackfillFulltextRequest,
     SciverseFetchContentRequest,
     SciverseMetaSearchRequest,
     SciverseSettingsPayload,
@@ -116,6 +117,7 @@ def test_sciverse_config_rejects_private_base_url():
         (SciverseMetaSearchRequest, {"query": "bibliometrics", "apiToken": "body-token"}),
         (SciverseAgenticSearchRequest, {"query": "bibliometrics", "apiToken": "body-token"}),
         (SciverseFetchContentRequest, {"docId": "doc-1", "apiToken": "body-token"}),
+        (SciverseBackfillFulltextRequest, {"maxPapers": 1, "apiToken": "body-token"}),
     ],
 )
 def test_sciverse_schemas_reject_body_api_token(schema, payload):

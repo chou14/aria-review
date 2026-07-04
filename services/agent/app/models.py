@@ -11,6 +11,7 @@ import datetime as dt
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Float,
     JSON,
     ForeignKey,
@@ -472,3 +473,98 @@ class DocumentStructure(Base):
     page_height: Mapped[float | None] = mapped_column(Float, nullable=True)
     rotation: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# 认证与多租户层（Phase B）：用户 / 会话 / 邀请码 / 积分计费
+# ---------------------------------------------------------------------------
+
+class User(Base):
+    """平台用户（邮箱 + 密码 + 邀请码注册）。
+
+    表名 app_user 避开 PostgreSQL 保留字 user（raw SQL 无需引号）。
+    credits 为积分余额缓存，真值以 credit_ledger 流水为准（同事务保证一致）。
+    encrypted_keys: BYOK 用户 API key，Fernet 加密后存储，明文永不落库。
+    """
+    __tablename__ = "app_user"
+
+    id: Mapped[int] = _pk()
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True)  # OAuth-only 用户为 null（Phase C）
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="user")  # user / admin
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active / disabled
+    credits: Mapped[int] = mapped_column(Integer, default=0)  # 积分余额缓存（真值见 credit_ledger）
+    encrypted_keys: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True)  # BYOK: Fernet 密文，{provider: token}
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now())
+
+
+class AuthSession(Base):
+    """服务端会话（httpOnly cookie 承载随机 token；DB 只存 sha256(token)，不存明文）。"""
+    __tablename__ = "auth_session"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256(token) 十六进制
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(index=True)
+    last_seen_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 排查异常，非明文 IP
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+class InviteCode(Base):
+    """注册邀请码（Claude Code 运维发放，无管理页面）。used_by 非空即已用。"""
+    __tablename__ = "invite_code"
+
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    used_by: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True)
+    used_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    note: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 批次/备注
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+
+class RedeemCode(Base):
+    """积分兑换码（充值积分；Claude Code 运维发放）。并发同码只允许兑一次。"""
+    __tablename__ = "redeem_code"
+
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    credits: Mapped[int] = mapped_column(Integer)  # 面值（>0，见 CheckConstraint）
+    # used_at 是「是否已用」的权威判据（不可回退）；used_by 仅审计——因 ondelete=SET NULL，
+    # 删用户后 used_by 会变 NULL，若以 used_by 判据会让码复活（codex 二审 P1）。
+    used_by: Mapped[int | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True)
+    used_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(nullable=True)
+    note: Mapped[str | None] = mapped_column(String(120), nullable=True)  # 批次/备注
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("credits > 0", name="ck_redeem_code_credits_positive"),
+    )
+
+
+class CreditLedger(Base):
+    """积分流水（可审计；余额 = SUM(delta)，与 User.credits 同事务保持一致）。"""
+    __tablename__ = "credit_ledger"
+
+    id: Mapped[int] = _pk()
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), index=True)
+    delta: Mapped[int] = mapped_column(Integer)  # +充值 / -消耗 / ±人工调账
+    reason: Mapped[str] = mapped_column(String(24))  # redeem / consume / adjust / refund
+    ref: Mapped[str | None] = mapped_column(String(64), nullable=True)  # code / ai_job.id
+    balance_after: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
+
+    __table_args__ = (
+        # 幂等护栏：同一 (user, reason, ref) 至多一条（ref 非空时），防重复扣费/退款
+        # 静默送钱或双扣（codex 二审 P1）。ref 为空的运维调账(adjust)不受约束。
+        Index("uq_credit_ledger_idempotent", "user_id", "reason", "ref",
+              unique=True, postgresql_where=text("ref IS NOT NULL")),
+    )

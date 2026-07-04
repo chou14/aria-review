@@ -42,15 +42,41 @@ export type EvolutionEnvelope = components["schemas"]["EvolutionEnvelope"];
 export type HistciteEnvelope = components["schemas"]["HistciteEnvelope"];
 export type ThreeFieldEnvelope = components["schemas"]["ThreeFieldEnvelope"];
 
-const DEFAULT_API_BASE = import.meta.env?.DEV ? "http://localhost:8000" : "/api";
-const BASE: string =
-  ((import.meta.env?.VITE_API_BASE as string | undefined) || "").trim() || DEFAULT_API_BASE;
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host === "0.0.0.0" || host.startsWith("127.");
+}
+
+function isLoopbackApiBase(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const explicit = trimmed.match(/^(?:https?:)?\/\/(\[[^\]]+\]|[^/:?#]+)(?::\d+)?(?:[/?#]|$)/i);
+  const bare = trimmed.match(/^(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?)(?::\d+)?(?:[/?#]|$)/i);
+  const host = explicit?.[1] ?? bare?.[1];
+  return host ? isLoopbackHost(host) : false;
+}
+
+export function resolveApiBase(
+  configuredBase: string | undefined,
+  env: { DEV?: boolean; PROD?: boolean },
+): string {
+  const base = (configuredBase || "").trim();
+  const fallback = env.DEV ? "http://localhost:8000" : "/api";
+  if (env.PROD && base && isLoopbackApiBase(base)) return "/api";
+  return base || fallback;
+}
+
+const BASE: string = resolveApiBase(
+  import.meta.env?.VITE_API_BASE as string | undefined,
+  import.meta.env ?? {},
+);
 export const API_BASE = BASE;
 
 export class ApiError extends Error {
   public readonly friendlyMessage?: string;
   public readonly originalMessage?: string;
   public readonly isFriendly?: boolean;
+  public readonly detail?: unknown;
 
   constructor(
     public code: string,
@@ -60,6 +86,7 @@ export class ApiError extends Error {
       friendlyMessage?: string;
       originalMessage?: string;
       isFriendly?: boolean;
+      detail?: unknown;
     } = {},
   ) {
     super(message);
@@ -67,6 +94,7 @@ export class ApiError extends Error {
     this.friendlyMessage = options.friendlyMessage;
     this.originalMessage = options.originalMessage;
     this.isFriendly = options.isFriendly;
+    this.detail = options.detail;
   }
 }
 
@@ -109,7 +137,7 @@ async function doFetch(input: string, init: ApiFetchInit = {}): Promise<Response
   const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, signal, ...fetchInit } = init;
   if (timeoutMs === false) {
     try {
-      return await fetch(input, { ...fetchInit, signal });
+      return await fetch(input, { credentials: "include", ...fetchInit, signal });
     } catch (e) {
       if (signal?.aborted) throw e;
       throw makeBackendUnavailableError(e);
@@ -135,7 +163,7 @@ async function doFetch(input: string, init: ApiFetchInit = {}): Promise<Response
   }, timeoutMs);
 
   try {
-    return await fetch(input, { ...fetchInit, signal: controller.signal });
+    return await fetch(input, { credentials: "include", ...fetchInit, signal: controller.signal });
   } catch (e) {
     if (callerAborted) throw e;
     if (timedOut) throw makeRequestTimeoutError(timeoutMs);
@@ -148,12 +176,14 @@ async function doFetch(input: string, init: ApiFetchInit = {}): Promise<Response
 
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    let body: { code?: string; message?: string; detail?: unknown } = {};
+    let body: { code?: string; message?: string; detail?: unknown; details?: unknown } = {};
     try {
       body = await res.json();
     } catch {
       /* 非 JSON 错误体 */
     }
+    // 后端 ApiError.body() 用 details（复数）承载结构化诊断；FastAPI 校验错误用 detail（单数）
+    const structuredDetail = body.detail ?? body.details;
     const validationMessage = Array.isArray(body.detail)
       ? body.detail
           .map((item) => {
@@ -166,10 +196,16 @@ async function handle<T>(res: Response): Promise<T> {
           .slice(0, 3)
           .join("; ")
       : undefined;
+    const detailMessage = typeof body.detail === "string" ? body.detail : undefined;
+    if (res.status === 401 && typeof window !== "undefined") {
+      // 会话过期/未认证：广播事件，AuthProvider 据此刷新登录态并跳登录页
+      window.dispatchEvent(new CustomEvent("aria:unauthorized"));
+    }
     throw new ApiError(
       body.code ?? (res.status === 422 ? "VALIDATION_ERROR" : "INTERNAL"),
       res.status,
-      body.message ?? validationMessage ?? res.statusText,
+      body.message ?? validationMessage ?? detailMessage ?? res.statusText,
+      { detail: structuredDetail },
     );
   }
   return (await res.json()) as T;
@@ -774,14 +810,26 @@ export type CorpusMaterializeResult = BrandCorpusIdFields<components["schemas"][
 
 export type InclusionStatus = "candidate" | "included" | "excluded" | "maybe";
 
-export type ProjectPaperItem = components["schemas"]["ProjectPaperItem"];
+export type ProjectPaperItem = components["schemas"]["ProjectPaperItem"] & {
+  sciverseDocId?: string | null;
+  hasReadableFulltext?: boolean | null;
+  hasFulltext?: boolean | null;
+  fulltextAvailable?: boolean | null;
+};
 
 // 作者既可能是纯字符串, 也可能是 CSL-JSON 对象 ({literal} 或 {family,given})
 export type Creator = string | { family?: string; given?: string; literal?: string };
 
 // PaperExtractionDto 和 PaperDetail 使用生成类型（消除手写漂移，B-fix）
 export type PaperExtractionDto = components["schemas"]["PaperExtractionDto"];
-export type PaperDetail = components["schemas"]["PaperDetail"];
+export type PaperDetail = components["schemas"]["PaperDetail"] & {
+  hasPdf?: boolean | null;
+  ocrStatus?: "none" | "pending" | "processing" | "done" | "failed" | null;
+  sciverseDocId?: string | null;
+  hasReadableFulltext?: boolean | null;
+  hasFulltext?: boolean | null;
+  fulltextAvailable?: boolean | null;
+};
 
 export type RunRef = components["schemas"]["AgentRunRef"];
 export type RunDetail = Omit<components["schemas"]["RunDetail"], "runId"> & {
@@ -915,7 +963,9 @@ export interface SearchCandidate {
   raw?: Record<string, unknown> | null;
 }
 
-export type FromSearchResult = components["schemas"]["FromSearchResult"];
+export type FromSearchResult = components["schemas"]["FromSearchResult"] & {
+  fulltextEligiblePaperIds?: number[] | null;
+};
 type FromSearchCandidatePayload = components["schemas"]["FromSearchCandidate"];
 
 export const SEARCH_CANDIDATE_LIMIT = 500;
@@ -993,6 +1043,11 @@ export function sanitizeSearchCandidateForImport(c: SearchCandidate): FromSearch
     provider: cleanString(c.provider, FROM_SEARCH_LIMITS.provider),
     sciverseDocId: cleanString(c.sciverseDocId, FROM_SEARCH_LIMITS.sciverseDocId),
     sciverseUniqueId: cleanString(c.sciverseUniqueId, FROM_SEARCH_LIMITS.sciverseUniqueId),
+    // 被引数透传：后端据此写 csl_json.citedByCount → 分析 TC（此前被丢弃导致计量指标恒 0）
+    citedByCount:
+      typeof c.citedByCount === "number" && Number.isFinite(c.citedByCount) && c.citedByCount >= 0
+        ? c.citedByCount
+        : undefined,
     references: Array.isArray(c.references)
       ? c.references.map((r) => cleanString(r, 1000)).filter((r): r is string => !!r).slice(0, FROM_SEARCH_LIMITS.references)
       : undefined,
@@ -1020,6 +1075,39 @@ export async function addPapersFromSearch(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ candidates: mapped, defaultStatus }),
+      timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
+    }),
+  );
+}
+
+export interface FulltextBackfillFailedItem {
+  paperId: number;
+  reason: string;
+}
+
+export interface FulltextBackfillResult {
+  total: number;
+  fetched: number;
+  failed: FulltextBackfillFailedItem[];
+  skipped: number;
+  remaining: number;
+}
+
+export async function backfillFulltext(
+  pid: number,
+  opts: { paperIds?: number[] | null; maxPapers?: number; excludePaperIds?: number[] } = {},
+  sciverse?: SciverseRequestOptions,
+): Promise<FulltextBackfillResult> {
+  const headers = applySciverseHeaders({ "Content-Type": "application/json" }, sciverse);
+  return handle<FulltextBackfillResult>(
+    await doFetch(`${BASE}/projects/${pid}/papers/fulltext:backfill`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        paperIds: opts.paperIds ?? null,
+        maxPapers: opts.maxPapers ?? 50,
+        excludePaperIds: opts.excludePaperIds ?? null,
+      }),
       timeoutMs: LONG_TASK_FETCH_TIMEOUT_MS,
     }),
   );
@@ -1638,4 +1726,72 @@ export async function patchGap(
       body: JSON.stringify(body),
     }),
   );
+}
+
+// ============ 认证 / 账户 / 计费 (Phase B) ============
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name: string | null;
+  role: string;
+  credits: number;
+}
+
+export interface CreditLedgerEntry {
+  delta: number;
+  reason: string;
+  ref: string | null;
+  balance_after: number;
+  created_at: string | null;
+}
+
+let authMeInFlight: Promise<AuthUser | null> | null = null;
+
+function jsonPost(body: unknown): ApiFetchInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+export async function authRegister(input: {
+  email: string;
+  password: string;
+  invite_code?: string;
+  display_name?: string;
+}): Promise<AuthUser> {
+  return handle<AuthUser>(await doFetch(`${BASE}/auth/register`, jsonPost(input)));
+}
+
+export async function authLogin(input: { email: string; password: string }): Promise<AuthUser> {
+  return handle<AuthUser>(await doFetch(`${BASE}/auth/login`, jsonPost(input)));
+}
+
+export async function authLogout(): Promise<void> {
+  await doFetch(`${BASE}/auth/logout`, { method: "POST" });
+}
+
+/** 查当前用户；未登录返回 null（不广播 unauthorized，避免登录态探测触发跳转循环）。 */
+export async function authMe(): Promise<AuthUser | null> {
+  if (authMeInFlight) return authMeInFlight;
+  authMeInFlight = (async () => {
+    const res = await doFetch(`${BASE}/auth/me`);
+    if (res.status === 401) return null;
+    return handle<AuthUser>(res);
+  })();
+  try {
+    return await authMeInFlight;
+  } finally {
+    authMeInFlight = null;
+  }
+}
+
+export async function authRedeem(code: string): Promise<{ credits_added: number; balance: number }> {
+  return handle(await doFetch(`${BASE}/auth/redeem`, jsonPost({ code })));
+}
+
+export async function authCredits(): Promise<{ balance: number; ledger: CreditLedgerEntry[] }> {
+  return handle(await doFetch(`${BASE}/auth/credits`));
 }

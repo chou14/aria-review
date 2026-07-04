@@ -8,8 +8,15 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ..harness.tools import BaseTool, ToolResult
+from ..errors import ApiError
+from ..ingest.sciverse_fulltext import (
+    fetch_and_store_sciverse_content,
+    select_sciverse_backfill_candidates,
+)
+from ..ingest.search_metadata import parse_cited_by_count, parse_year
 from ..repositories import library as lib_repo
 from ..repositories import project as proj_repo
+from ..sciverse import SciverseClient, sciverse_config
 
 _VALID_STATUSES = {"candidate", "included", "excluded", "maybe"}
 
@@ -211,8 +218,9 @@ class ProjectTool(BaseTool):
             if value:
                 data[dst] = value
 
-        year = cand.get("year")
-        if isinstance(year, int) and 1500 <= year <= 2100:
+        # 归一 float/str 年份（Sciverse 曾返回 2025.0 → isinstance(int) 整列丢弃）
+        year = parse_year(cand.get("year"), date_hint=cand.get("publicationDate"))
+        if year is not None:
             data["year"] = year
         authors = cand.get("authors") or []
         if isinstance(authors, list) and authors:
@@ -222,8 +230,14 @@ class ProjectTool(BaseTool):
                 if str(author).strip()
             ]
         refs = self._references_from_candidate(cand)
+        csl_json: dict[str, Any] = {}
         if refs:
-            data["csl_json"] = {"references": refs}
+            csl_json["references"] = refs
+        cited_by_count = parse_cited_by_count(cand.get("citedByCount"))
+        if cited_by_count is not None:
+            csl_json["citedByCount"] = cited_by_count
+        if csl_json:
+            data["csl_json"] = csl_json
         return data
 
     @staticmethod
@@ -330,6 +344,8 @@ class ProjectTool(BaseTool):
         skipped = 0
         failed = 0
         paper_ids: list[int] = []
+        sciverse_paper_ids: list[int] = []
+        sciverse_seen: set[int] = set()
 
         for cand in selected:
             try:
@@ -346,6 +362,9 @@ class ProjectTool(BaseTool):
                         await proj_repo.set_inclusion(s, existing_pp.id, "included")
                     skipped += 1
                     paper_ids.append(paper.id)
+                    if cand.get("sciverseDocId") and paper.id not in sciverse_seen:
+                        sciverse_paper_ids.append(paper.id)
+                        sciverse_seen.add(paper.id)
                     continue
 
                 pp = await proj_repo.add_paper_to_project(
@@ -359,6 +378,9 @@ class ProjectTool(BaseTool):
 
                 imported += 1
                 paper_ids.append(paper.id)
+                if cand.get("sciverseDocId") and paper.id not in sciverse_seen:
+                    sciverse_paper_ids.append(paper.id)
+                    sciverse_seen.add(paper.id)
             except Exception:
                 try:
                     await s.rollback()
@@ -366,6 +388,13 @@ class ProjectTool(BaseTool):
                     pass
                 failed += 1
 
+        fulltext = await self._auto_fetch_sciverse_fulltexts(
+            s,
+            project_id=int(project_id),
+            paper_ids=sciverse_paper_ids,
+            context=ctx,
+        )
+        metadata_only = max(0, len(paper_ids) - len(sciverse_paper_ids))
         data = [{
             "project_id": int(project_id),
             "imported": imported,
@@ -373,7 +402,23 @@ class ProjectTool(BaseTool):
             "failed": failed,
             "paper_ids": paper_ids,
             "default_status": status,
+            "sciverse_fulltext": fulltext,
         }]
+        fulltext_summary = ""
+        if sciverse_paper_ids:
+            if fulltext.get("not_configured"):
+                fulltext_summary = (
+                    f"；其中 {len(sciverse_paper_ids)} 篇 Sciverse 有全文，"
+                    f"但 Sciverse 未配置，已跳过自动拉取；其余 {metadata_only} 篇仅题录"
+                )
+            else:
+                fulltext_summary = (
+                    f"；其中 {len(sciverse_paper_ids)} 篇 Sciverse 有全文，"
+                    f"已自动拉取 {fulltext['fetched']} 篇成功 {fulltext['failed']} 篇失败；"
+                    f"其余 {metadata_only} 篇仅题录"
+                )
+        elif paper_ids:
+            fulltext_summary = f"；本次 {len(paper_ids)} 篇均仅题录"
         return self._ok(
             "import_search_results",
             data,
@@ -381,8 +426,73 @@ class ProjectTool(BaseTool):
             summary=(
                 f"已从最近检索候选导入 {imported} 篇到项目 id={project_id}"
                 f"（跳过已关联 {skipped}，失败 {failed}，状态 {status}）"
+                f"{fulltext_summary}"
             ),
         )
+
+    async def _auto_fetch_sciverse_fulltexts(
+        self,
+        s,
+        *,
+        project_id: int,
+        paper_ids: list[int],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """为本次导入的 Sciverse doc_id 论文自动补全文；失败只记账不阻断导入。"""
+        unique_ids = list(dict.fromkeys(int(pid) for pid in paper_ids))
+        if not unique_ids:
+            return {"eligible": 0, "attempted": 0, "fetched": 0, "failed": 0, "failures": []}
+
+        override = context.get("sciverse") if isinstance(context.get("sciverse"), dict) else {}
+        try:
+            client = SciverseClient(sciverse_config(
+                override.get("base_url"),
+                override.get("api_token"),
+            ))
+        except ApiError as exc:
+            return {
+                "eligible": len(unique_ids),
+                "attempted": 0,
+                "fetched": 0,
+                "failed": 0,
+                "failures": [],
+                "not_configured": True,
+                "reason": exc.message,
+            }
+
+        candidates = (await select_sciverse_backfill_candidates(
+            s,
+            project_id=project_id,
+            paper_ids=unique_ids,
+        ))[:25]
+        fetched = 0
+        failures: list[dict[str, Any]] = []
+        for candidate in candidates:
+            try:
+                await fetch_and_store_sciverse_content(
+                    s,
+                    project_id=project_id,
+                    paper_id=candidate.paper_id,
+                    client=client,
+                    doc_id=candidate.doc_id,
+                )
+                fetched += 1
+            except Exception as exc:  # noqa: BLE001
+                try:
+                    await s.rollback()
+                except Exception:
+                    pass
+                failures.append({
+                    "paperId": candidate.paper_id,
+                    "reason": exc.message if isinstance(exc, ApiError) else str(exc),
+                })
+        return {
+            "eligible": len(unique_ids),
+            "attempted": len(candidates),
+            "fetched": fetched,
+            "failed": len(failures),
+            "failures": failures,
+        }
 
     async def _set_inclusion(self, s, params: dict) -> ToolResult:
         project_id = params.get("project_id")

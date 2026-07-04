@@ -11,13 +11,14 @@ interface Props {
   importing: boolean;
   result?: ImportResult;
   error?: Error | null;
-  onImport: (files: File[]) => void;
+  onImport: (files: File[], defaultStatus: "candidate" | "included") => void;
   onClose: () => void;
 }
 
 export function ImportDialog({ importing, result, error, onImport, onClose }: Props) {
   const [dragover, setDragover] = useState(false);
   const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [includeAfterUpload, setIncludeAfterUpload] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = (files: FileList | null) => {
@@ -33,7 +34,7 @@ export function ImportDialog({ importing, result, error, onImport, onClose }: Pr
   };
 
   const handleSubmit = () => {
-    if (localFiles.length > 0) onImport(localFiles);
+    if (localFiles.length > 0) onImport(localFiles, includeAfterUpload ? "included" : "candidate");
   };
 
   // 是否已有结果
@@ -92,6 +93,14 @@ export function ImportDialog({ importing, result, error, onImport, onClose }: Pr
               style={{ display: "none" }}
               onChange={(e) => handleFiles(e.target.files)}
             />
+            <label className="import-include-option">
+              <input
+                type="checkbox"
+                checked={includeAfterUpload}
+                onChange={(e) => setIncludeAfterUpload(e.target.checked)}
+              />
+              上传后直接纳入（推荐）
+            </label>
           </>
         )}
 

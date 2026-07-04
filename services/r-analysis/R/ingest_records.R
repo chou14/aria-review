@@ -197,6 +197,11 @@
   # 引用: references → CR 列（bibliometrix 智力结构/引用分析）
   cr <- .refs_to_cr(rec$references %||% csl$references %||% csl$reference)
 
+  # 被引数: record 顶层 TC（Python get_corpus_records 注入）或 csl_json citedByCount；
+  # 缺失/负值归 0（bibliometrix 篇均被引/H 指数依赖 TC 列）
+  tc <- .scalar_int(rec$TC %||% csl$citedByCount, default = 0L)
+  if (is.na(tc) || tc < 0L) tc <- 0L
+
   # 作者: 优先 creators 列（JSON），后备 csl_json author
   creators <- if (!is.null(rec$creators) && length(rec$creators) > 0) rec$creators
               else if (!is.null(csl$author) && length(csl$author) > 0)  csl$author
@@ -225,6 +230,7 @@
     AB = if (nzchar(abstract)) abstract else NA_character_,
     DE = if (nzchar(de)) de else NA_character_,
     CR = cr,
+    TC = tc,
     VL = if (nzchar(volume)) volume else NA_character_,
     IS = if (nzchar(issue)) issue else NA_character_,
     BP = if (nzchar(bp)) bp else NA_character_,

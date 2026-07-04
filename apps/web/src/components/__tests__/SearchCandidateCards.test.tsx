@@ -18,10 +18,20 @@ import type { SearchCandidate } from "../../api/client";
 
 // Mock useAddFromSearch hook
 const mockMutateAsync = vi.fn();
+const mockBackfillFulltextAsync = vi.fn();
 vi.mock("../../api/agentHooks", () => ({
   useAddFromSearch: () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
+  }),
+  useBackfillFulltext: () => ({
+    mutateAsync: mockBackfillFulltextAsync,
+    isPending: false,
+  }),
+}));
+vi.mock("../../api/useSciverseSettings", () => ({
+  useSciverseSettings: () => ({
+    settings: { apiToken: "tok", baseUrl: "https://api.sciverse.space" },
   }),
 }));
 
@@ -61,7 +71,15 @@ const MOCK_CANDIDATES: SearchCandidate[] = [
 describe("SearchCandidateCards", () => {
   beforeEach(() => {
     mockMutateAsync.mockReset();
+    mockBackfillFulltextAsync.mockReset();
     mockMutateAsync.mockResolvedValue({ imported: 2, skipped: 0, failed: [], failedCount: 0, paperIds: [101, 102] });
+    mockBackfillFulltextAsync.mockResolvedValue({
+      total: 0,
+      fetched: 0,
+      failed: [],
+      skipped: 0,
+      remaining: 0,
+    });
   });
 
   afterEach(() => {
@@ -90,6 +108,21 @@ describe("SearchCandidateCards", () => {
     // 被引数
     expect(screen.getByText(/47/)).toBeInTheDocument();
     expect(screen.getByText(/23/)).toBeInTheDocument();
+  });
+
+  it("按 sciverseDocId 显示含全文/仅题录徽章", () => {
+    render(
+      <SearchCandidateCards
+        projectId={5}
+        candidates={[
+          { ...MOCK_CANDIDATES[0], candidate_id: "S1", sciverseDocId: "doc-1", source: "sciverse", provider: "sciverse" },
+          { ...MOCK_CANDIDATES[1], candidate_id: "S2", sciverseDocId: null, source: "sciverse", provider: "sciverse" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("含全文")).toBeInTheDocument();
+    expect(screen.getByText("仅题录")).toBeInTheDocument();
   });
 
   it("默认全部候选被勾选", () => {
@@ -187,6 +220,38 @@ describe("SearchCandidateCards", () => {
     await waitFor(() => {
       // 应显示成功反馈，含 imported 数量
       expect(screen.getByText(/已导入 2 篇/)).toBeInTheDocument();
+    });
+  });
+
+  it("入库返回 fulltextEligiblePaperIds 时自动补全文并显示结果", async () => {
+    mockMutateAsync.mockResolvedValue({
+      imported: 2,
+      skipped: 0,
+      failed: [],
+      failedCount: 0,
+      paperIds: [101, 102],
+      fulltextEligiblePaperIds: [101],
+    });
+    mockBackfillFulltextAsync.mockResolvedValue({
+      total: 1,
+      fetched: 1,
+      skipped: 0,
+      failed: [],
+      remaining: 0,
+    });
+
+    render(<SearchCandidateCards projectId={5} candidates={MOCK_CANDIDATES} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /加入文献库/ }));
+
+    await waitFor(() => {
+      expect(mockBackfillFulltextAsync).toHaveBeenCalledWith({
+        paperIds: [101],
+        maxPapers: 1,
+        sciverse: { apiToken: "tok", baseUrl: "https://api.sciverse.space" },
+      });
+      expect(screen.getByText(/已为 1 篇拉取全文/)).toBeInTheDocument();
+      expect(screen.getByText(/1 篇仅题录/)).toBeInTheDocument();
     });
   });
 

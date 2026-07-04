@@ -23,9 +23,9 @@ from ..repositories.library import (
 _VALID_STATUSES = frozenset({"candidate", "included", "excluded", "maybe"})
 
 
-async def list_projects_dto(s: AsyncSession) -> list[dict]:
-    """列出所有项目，返回精简 DTO [{id, name, createdAt}]。"""
-    projects = await proj_repo.list_projects(s)
+async def list_projects_dto(s: AsyncSession, owner_id: int | None = None) -> list[dict]:
+    """列出项目（owner_id 非空时只列该用户的），返回精简 DTO [{id, name, createdAt}]。"""
+    projects = await proj_repo.list_projects(s, owner_id=owner_id)
     return [
         {
             "id": p.id,
@@ -41,15 +41,16 @@ async def create_project_dto(
     name: str,
     research_question: str | None = None,
     description: str | None = None,
+    owner_id: int | None = None,
 ) -> dict:
-    """创建项目，返回 DTO {id, name, createdAt}。"""
+    """创建项目，返回 DTO {id, name, createdAt}。owner_id 归属登录用户（Round 5）。"""
     data = {"name": name}
     if research_question is not None:
         data["research_question"] = research_question
     if description is not None:
         data["description"] = description
     try:
-        proj = await proj_repo.create_project(s, data)
+        proj = await proj_repo.create_project(s, data, owner_id=owner_id)
     except IntegrityError as exc:
         await s.rollback()
         raise ApiError(409, "PROJECT_NAME_EXISTS", f"项目名称已存在: {name}") from exc
@@ -280,7 +281,23 @@ async def get_paper_detail_dto(
             "contribution": ext.contribution,
         }
 
+    # 全文状态：详情页据此显示「拉取全文」按钮（有 doc_id 且无可读全文时）
+    sciverse_ids = await lib_repo.list_external_ids(
+        s, paper_id, provider="sciverse", id_type="doc_id")
+    sciverse_doc_id = sciverse_ids[0].external_id if sciverse_ids else None
+    from sqlalchemy import select as sa_select
+    from ..models import Attachment
+    md_att = (await s.execute(
+        sa_select(Attachment.id).where(
+            Attachment.paper_id == paper_id,
+            Attachment.markdown_path.isnot(None),
+            Attachment.markdown_path != "",
+        ).limit(1)
+    )).first()
+
     return {
+        "sciverseDocId": sciverse_doc_id,
+        "hasReadableFulltext": md_att is not None,
         "paperId": paper.id,
         "title": paper.title,
         "creators": paper.creators or [],

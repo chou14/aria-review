@@ -49,7 +49,10 @@ overview_dto <- function(M) {
   py <- py[!is.na(py)]
   if (!length(py)) {
     # 契约要求 timespanFrom/To 为必填整数; 无有效出版年则概览无意义。
-    stop("overview_dto: 语料缺少有效 PY (出版年), 无法生成概览")
+    # 文案对齐作者时间线的自救提示风格(用户可操作)。
+    stop("当前语料所有文献都缺少出版年(PY)，无法生成领域概览。",
+         "请在文献库用「AI 补全元数据」补齐年份，或重新检索导入含出版年的题录，",
+         "然后重新构建分析语料。")
   }
   timespan_from <- min(py)
   timespan_to   <- max(py)

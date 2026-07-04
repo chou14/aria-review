@@ -688,6 +688,10 @@ class PaperDetail(BaseModel):
     notes: list = Field(default_factory=list)
     inclusionStatus: InclusionStatus
     extraction: PaperExtractionDto | None = None
+    sciverseDocId: str | None = Field(
+        default=None, description="Sciverse 全文 doc_id（存在即可拉取全文）")
+    hasReadableFulltext: bool = Field(
+        default=False, description="是否已有可读 markdown 全文附件（GAP 精读前置条件）")
 
 
 class InclusionPatchRequest(BaseModel):
@@ -859,6 +863,7 @@ class FromSearchCandidate(BaseModel):
     provider: str | None = Field(default=None, max_length=40)
     sciverseDocId: str | None = Field(default=None, max_length=255)
     sciverseUniqueId: str | None = Field(default=None, max_length=255)
+    citedByCount: int | float | str | None = None
     references: list[str] = Field(default_factory=list, max_length=1000)
     externalIds: list[dict] = Field(default_factory=list, max_length=20)
     raw: dict | None = None
@@ -889,6 +894,10 @@ class FromSearchResult(BaseModel):
     paperIds: list[int] = Field(
         default_factory=list,
         description="所有成功入库的 paper DB id（含 imported + skipped 两类）",
+    )
+    fulltextEligiblePaperIds: list[int] = Field(
+        default_factory=list,
+        description="本次成功入库/命中的、带 Sciverse doc_id 的 paper DB id",
     )
 
 
@@ -959,6 +968,30 @@ class SciverseFetchContentResult(BaseModel):
     sha256: str
 
 
+class SciverseBackfillFulltextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paperIds: list[int] | None = Field(default=None, description="可选：只在这些 paper id 的交集内补全文")
+    maxPapers: int = Field(default=50, ge=1, description="本次最多处理的候选论文数")
+    excludePaperIds: list[int] | None = Field(
+        default=None,
+        description="可选：跳过这些 paper id（前端多轮循环时传已失败项，避免失败项挡住后续候选）",
+    )
+
+
+class SciverseBackfillFailedItem(BaseModel):
+    paperId: int
+    reason: str
+
+
+class SciverseBackfillFulltextResult(BaseModel):
+    total: int = Field(ge=0, description="本次条件下可补全文的论文总数")
+    fetched: int = Field(ge=0, description="成功拉取并落库全文的论文数")
+    failed: list[SciverseBackfillFailedItem] = Field(default_factory=list)
+    skipped: int = Field(ge=0, description="因 maxPapers 上限本次未处理的论文数")
+    remaining: int = Field(ge=0, description="仍有资格但本次未处理的论文数；>0 时可继续调用")
+
+
 # --- P3-T1 元数据补全 ---
 
 class BackfillMetadataRequest(BaseModel):
@@ -991,6 +1024,8 @@ class ExtractStructuredResult(BaseModel):
     skipped: int = Field(ge=0, description="跳过（无 markdown/已有 extraction 且未强制重提取）的文献数")
     failed: int = Field(ge=0, description="处理失败（LLM 错误/JSON 解析失败/DB 错误）的文献数")
     available: int = Field(ge=0, description="处理后仍待处理的篇数（剩余）：OCR done 且尚无 extraction 的文献数，reextract=true 时为 OCR done 总数，不受 limit 截断")
+    noFulltext: int = Field(default=0, ge=0, description="项目内被跳过的无全文附件（仅题录）文献数")
+    summary: str | None = Field(default=None, description="面向用户的批处理说明")
 
 
 # --- B2 文档结构视图（块/表格网格；B3 复用并加 StructureResponse 信封）---

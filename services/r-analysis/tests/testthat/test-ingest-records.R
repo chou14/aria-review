@@ -120,3 +120,12 @@ test_that("threefield_dto: records 语料 作者→关键词→来源 Sankey 可
   expect_true(is.null(tf$available) || isTRUE(tf$available))
   expect_gt(length(tf$data$nodes %||% tf$nodes), 0L)
 })
+
+test_that("records_to_bib_df: TC 被引数取 record 顶层 TC / csl_json citedByCount / 缺失归 0", {
+  df <- records_to_bib_df(list(
+    list(title = "Paper Alpha Study", year = 2020, TC = 98L),
+    list(title = "Paper Beta Study", year = 2021, csl_json = list(citedByCount = 5)),
+    list(title = "Paper Gamma Study", year = 2022)
+  ))
+  expect_identical(df$TC, c(98L, 5L, 0L))
+})

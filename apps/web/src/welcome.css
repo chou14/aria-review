@@ -1,0 +1,932 @@
+/* ============================================================
+ * welcome.css — 公开落地页专用样式（wel-* 前缀，不污染全局）
+ * 视觉体系沿用全站「学术宣纸」token：--paper / --ink / --cinnabar /
+ * --indigo / --serif / --mono（定义于 styles.css :root）。
+ * 深色节复用登录页 auth-brand 的靛蓝墨韵渐变，保持品牌血统。
+ * ============================================================ */
+
+.wel-page {
+  background: var(--paper);
+  color: var(--ink);
+  overflow-x: clip;
+}
+
+.wel-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ---------- 入场动效（prefers-reduced-motion 时整体关闭） ---------- */
+
+.wel-page [data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.wel-page [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wel-page [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .wel-page * {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- 顶栏 ---------- */
+
+.wel-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  transition: background 0.25s ease, border-color 0.25s ease, backdrop-filter 0.25s ease;
+}
+.wel-nav.is-scrolled {
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom-color: var(--line);
+}
+
+.wel-nav-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  text-decoration: none;
+  color: var(--ink);
+  min-width: 0;
+}
+.wel-nav-name {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.wel-nav-tag {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wel-seal {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border-radius: 8px;
+  background: var(--cinnabar);
+  color: #fff;
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3), 0 3px 10px rgba(192, 67, 43, 0.3);
+}
+.wel-seal-sm {
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
+
+.wel-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex: none;
+}
+
+.wel-gh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+.wel-gh:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+
+/* ---------- Hero ---------- */
+
+.wel-hero {
+  padding: clamp(3.5rem, 9vh, 6.5rem) 0 5rem;
+  text-align: center;
+}
+
+.wel-eyebrow {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  color: var(--cinnabar);
+  margin: 0 0 1.4rem;
+}
+
+.wel-h1 {
+  font-family: var(--serif);
+  font-size: clamp(2.1rem, 5.2vw, 3.5rem);
+  line-height: 1.28;
+  letter-spacing: 0.01em;
+  margin: 0 auto;
+  max-width: 22em;
+}
+.wel-h1 em {
+  font-style: normal;
+  color: var(--cinnabar);
+}
+
+.wel-hero-lead {
+  max-width: 38em;
+  margin: 1.6rem auto 0;
+  font-size: 1.05rem;
+  line-height: 1.9;
+  color: var(--ink-2);
+}
+.wel-hero-lead strong {
+  color: var(--ink);
+}
+
+.wel-hero-cta {
+  display: flex;
+  justify-content: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-top: 2.2rem;
+}
+
+.wel-film-wrap {
+  margin: 3.5rem auto 0;
+  max-width: 960px;
+}
+.wel-film {
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0a0a08;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--line-2);
+}
+.wel-film video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}
+.wel-film-cap {
+  margin-top: 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* ---------- 通用节 ---------- */
+
+.wel-section {
+  padding: clamp(4.5rem, 10vh, 7rem) 0;
+}
+.wel-alt {
+  background: var(--paper-2);
+}
+
+.wel-kicker {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.2em;
+  color: var(--cinnabar);
+  margin: 0 0 1.1rem;
+}
+
+.wel-h2 {
+  font-family: var(--serif);
+  font-size: clamp(1.55rem, 3.4vw, 2.35rem);
+  line-height: 1.4;
+  margin: 0 0 1.4rem;
+  max-width: 26em;
+}
+.wel-h2 em {
+  font-style: normal;
+  color: var(--cinnabar);
+}
+
+.wel-body {
+  max-width: 42em;
+  font-size: 1rem;
+  line-height: 1.95;
+  color: var(--ink-2);
+  margin: 0 0 2.8rem;
+}
+.wel-body strong {
+  color: var(--ink);
+}
+
+.wel-closer {
+  margin: 3rem auto 0;
+  text-align: center;
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  color: var(--ink);
+}
+.wel-closer::before {
+  content: "";
+  display: block;
+  width: 2.2rem;
+  height: 3px;
+  background: var(--cinnabar);
+  margin: 0 auto 1.1rem;
+}
+
+/* ---------- 深色节（靛蓝墨韵，同 auth-brand 血统） ---------- */
+
+.wel-dark {
+  color: #f3ede1;
+  background:
+    radial-gradient(120% 90% at 12% 8%, rgba(192, 67, 43, 0.2), transparent 55%),
+    linear-gradient(155deg, #33475a 0%, #26333f 55%, #1f2a34 100%);
+}
+.wel-dark .wel-kicker {
+  color: #dccaa0;
+}
+.wel-dark .wel-h2 {
+  color: #fff;
+}
+.wel-dark .wel-h2 em {
+  color: #ff8a6d;
+}
+.wel-dark .wel-body {
+  color: rgba(243, 237, 225, 0.82);
+}
+.wel-dark .wel-body strong {
+  color: #fff;
+}
+
+/* ---------- 五级阶梯 ---------- */
+
+.wel-ladder {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.1rem;
+  margin-top: 3.2rem;
+}
+
+.wel-step {
+  flex: 1;
+  position: relative;
+  border-top: 3px solid rgba(243, 237, 225, 0.28);
+  padding-top: 0.9rem;
+  margin-bottom: calc(var(--i) * 20px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  opacity: 0.35;
+  transition: opacity 0.5s ease;
+  transition-delay: calc(var(--i) * 110ms);
+}
+.wel-ladder.is-in .wel-step {
+  opacity: 1;
+}
+
+.wel-step-num {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: #dccaa0;
+}
+.wel-step-name {
+  font-family: var(--serif);
+  font-size: 1.12rem;
+  color: #fff;
+}
+.wel-step-desc {
+  font-size: 0.82rem;
+  color: rgba(243, 237, 225, 0.62);
+}
+
+.wel-step-next {
+  border-top-color: var(--cinnabar);
+}
+.wel-step-next .wel-step-name {
+  color: #ff8a6d;
+}
+
+.wel-step-badge {
+  position: absolute;
+  top: -2.35rem;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  padding: 0.3rem 0.6rem;
+  background: var(--cinnabar);
+  color: #fff;
+  border-radius: 6px;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(192, 67, 43, 0.4);
+}
+.wel-step-badge::after {
+  content: "";
+  position: absolute;
+  left: 0.9rem;
+  bottom: -0.32rem;
+  width: 0.65rem;
+  height: 0.65rem;
+  background: var(--cinnabar);
+  transform: rotate(45deg);
+}
+
+.wel-src-note {
+  margin: 2.6rem 0 0;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  color: rgba(243, 237, 225, 0.45);
+}
+
+/* ---------- 三卡（02 缺了什么） ---------- */
+
+.wel-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  margin-top: 2.6rem;
+}
+
+.wel-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.6rem 1.5rem 1.3rem;
+}
+.wel-card h3 {
+  font-family: var(--serif);
+  font-size: 1.22rem;
+  margin: 0.55rem 0 0.7rem;
+}
+.wel-card p {
+  margin: 0;
+  font-size: 0.93rem;
+  line-height: 1.8;
+  color: var(--ink-2);
+}
+.wel-card-k {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+.wel-card p.wel-card-note {
+  /* flex 列末尾吸底：卡片高度不齐时"前提"行始终贴底对齐 */
+  margin-top: auto;
+  padding-top: 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-3);
+  border-top: 1px dashed var(--line-2);
+}
+.wel-card h3 + p {
+  margin-bottom: 1.2rem;
+}
+
+.wel-card-hot {
+  border-color: var(--cinnabar);
+  background: linear-gradient(180deg, var(--card), #fbf0ea);
+  box-shadow: 0 10px 30px rgba(192, 67, 43, 0.12);
+}
+.wel-card-hot .wel-card-k {
+  color: var(--cinnabar);
+}
+.wel-card-hot h3 {
+  color: var(--cinnabar);
+}
+.wel-card p.wel-card-note-hot {
+  color: var(--cinnabar);
+  border-top-color: rgba(192, 67, 43, 0.35);
+  font-weight: 600;
+}
+
+/* ---------- 三特性（03） ---------- */
+
+.wel-feats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  margin: 0 0 3.2rem;
+}
+.wel-feat h3 {
+  font-family: var(--serif);
+  font-size: 1.12rem;
+  margin: 0 0 0.55rem;
+}
+.wel-feat h3::before {
+  content: "";
+  display: block;
+  width: 1.6rem;
+  height: 3px;
+  background: var(--cinnabar);
+  margin-bottom: 0.75rem;
+}
+.wel-feat p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.85;
+  color: var(--ink-2);
+}
+
+/* ---------- 引用穿透演示（签名交互） ---------- */
+
+.wel-demo {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.wel-demo-review {
+  padding: 1.9rem 1.9rem 1.5rem;
+}
+.wel-demo-label,
+.wel-demo-doc {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  margin: 0 0 1.1rem;
+}
+.wel-demo-text {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 2.15;
+  color: var(--ink);
+}
+
+.wel-cite {
+  display: inline-block;
+  margin: 0 0.25rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--cinnabar);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cinnabar);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  vertical-align: 0.08em;
+}
+.wel-cite:hover {
+  transform: translateY(-1px);
+  background: var(--cinnabar-soft);
+}
+.wel-cite.is-active {
+  background: var(--cinnabar);
+  color: #fff;
+}
+
+.wel-demo-hint {
+  margin: 1.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+
+.wel-demo-src {
+  background: var(--paper-2);
+  border-left: 1px solid var(--line-2);
+  padding: 1.9rem 1.7rem;
+}
+.wel-demo-doc span {
+  color: var(--ink-2);
+  letter-spacing: 0;
+}
+
+.wel-blocks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.wel-blk {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.7rem;
+  padding: 0.55rem 0.85rem;
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.86rem;
+  color: var(--ink-3);
+}
+.wel-blk-name {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  flex: none;
+  min-width: 4.6em;
+}
+.wel-blk.is-hit {
+  border-left-color: var(--cinnabar);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  animation: welHit 0.9s ease;
+}
+.wel-blk-anchor {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--cinnabar);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+@keyframes welHit {
+  0% {
+    background: var(--cinnabar-soft);
+  }
+  100% {
+    background: var(--card);
+  }
+}
+
+.wel-demo-foot {
+  margin: 1.4rem 0 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+/* ---------- 04 真实案例 ---------- */
+
+.wel-case {
+  margin-top: 3rem;
+}
+.wel-case-step {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  margin: 0 0 0.6rem;
+}
+.wel-case-step::before {
+  content: "●";
+  color: var(--cinnabar);
+  margin-right: 0.55rem;
+  font-size: 0.7em;
+  vertical-align: 0.15em;
+}
+.wel-case-desc {
+  margin: 0 0 1.3rem;
+  font-size: 0.92rem;
+  color: var(--ink-2);
+  max-width: 42em;
+}
+
+.wel-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+.wel-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  min-width: 640px;
+}
+.wel-matrix th {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+  text-align: left;
+  color: var(--ink-3);
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+}
+.wel-matrix td {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.wel-matrix tr:last-child td {
+  border-bottom: none;
+}
+.wel-td-paper {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  color: var(--ink) !important;
+}
+.wel-td-anchor {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--cinnabar) !important;
+  white-space: nowrap;
+}
+.wel-table-cap {
+  margin: 0.7rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.wel-gap-quote {
+  margin: 0;
+  padding: 1.3rem 1.6rem;
+  border-left: 3px solid var(--cinnabar);
+  background: var(--card);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  box-shadow: var(--shadow-sm);
+  font-family: var(--serif);
+  font-size: 1.12rem;
+  line-height: 1.85;
+  color: var(--ink);
+  max-width: 46em;
+}
+.wel-gap-quote cite {
+  display: block;
+  margin-top: 0.7rem;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.wel-verdicts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+}
+.wel-verdict {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 1.4rem 1.5rem;
+}
+.wel-verdict-ok {
+  border-left: 4px solid var(--ok);
+}
+.wel-verdict-no {
+  border-left: 4px solid var(--warn);
+}
+.wel-verdict-gap {
+  margin: 0 0 0.5rem;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+.wel-verdict-metrics {
+  margin: 0 0 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-3);
+}
+.wel-verdict-tag {
+  margin: 0;
+  display: inline-block;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+.wel-verdict-ok .wel-verdict-tag {
+  color: var(--ok);
+}
+.wel-verdict-no .wel-verdict-tag {
+  color: var(--warn);
+}
+
+/* ---------- 产品截图带 ---------- */
+
+.wel-shots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+  margin-top: 3.5rem;
+}
+.wel-shots figure {
+  margin: 0;
+}
+.wel-shots img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 8 / 5;
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+.wel-shots figcaption {
+  margin-top: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* ---------- 数字带 ---------- */
+
+.wel-stats {
+  padding: 3.8rem 0;
+}
+.wel-stats-row {
+  display: flex;
+  justify-content: center;
+  gap: clamp(2.5rem, 8vw, 6rem);
+  flex-wrap: wrap;
+}
+.wel-stat {
+  text-align: center;
+}
+.wel-stat-num {
+  display: block;
+  font-family: var(--mono);
+  font-size: clamp(2.1rem, 4.5vw, 3rem);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.wel-stat-label {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: rgba(243, 237, 225, 0.72);
+}
+.wel-stats-note {
+  margin: 2.2rem 0 0;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: rgba(243, 237, 225, 0.45);
+}
+
+/* ---------- 愿景 + CTA ---------- */
+
+.wel-final {
+  text-align: center;
+}
+.wel-final .wel-h2,
+.wel-final .wel-body {
+  margin-left: auto;
+  margin-right: auto;
+}
+.wel-cta {
+  margin-top: 1rem;
+}
+.wel-cta-note {
+  margin: 1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+}
+
+.wel-link {
+  color: var(--cinnabar);
+  text-decoration: none;
+}
+.wel-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Footer ---------- */
+
+.wel-footer {
+  border-top: 1px solid var(--line);
+  padding: 1.6rem 0;
+}
+.wel-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  color: var(--ink-3);
+}
+.wel-footer-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.wel-footer-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* ---------- 键盘可达性 ---------- */
+
+.wel-page a:focus-visible,
+.wel-page button:focus-visible {
+  outline: 2px solid var(--cinnabar);
+  outline-offset: 2px;
+}
+
+/* ---------- 响应式（与 auth 同断点 880px） ---------- */
+
+@media (max-width: 880px) {
+  .wel-nav-tag {
+    display: none;
+  }
+  .wel-nav .btn-ghost {
+    display: none;
+  }
+  .wel-gh span {
+    display: none;
+  }
+
+  .wel-cards,
+  .wel-feats,
+  .wel-verdicts {
+    grid-template-columns: 1fr;
+  }
+  .wel-feats {
+    gap: 1.5rem;
+  }
+
+  .wel-demo {
+    grid-template-columns: 1fr;
+  }
+  .wel-demo-src {
+    border-left: none;
+    border-top: 1px solid var(--line-2);
+  }
+
+  .wel-ladder {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    margin-top: 2.4rem;
+  }
+  .wel-step {
+    margin-bottom: 0;
+    border-top: none;
+    border-left: 3px solid rgba(243, 237, 225, 0.28);
+    padding: 0.55rem 0 0.55rem 1rem;
+  }
+  .wel-step-next {
+    border-left-color: var(--cinnabar);
+  }
+  .wel-step-badge {
+    position: static;
+    align-self: flex-start;
+    order: -1;
+    margin-bottom: 0.4rem;
+  }
+  .wel-step-badge::after {
+    display: none;
+  }
+  .wel-src-note {
+    text-align: left;
+  }
+
+  .wel-shots {
+    grid-template-columns: none;
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 0.5rem;
+  }
+  .wel-shots figure {
+    flex: 0 0 78%;
+    scroll-snap-align: start;
+  }
+}

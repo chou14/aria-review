@@ -10,7 +10,8 @@
  * dev/e2e：可传 projectId/corpusId override，跳过 project 拉取（见 DevRoutes /dev/research）。
  */
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useParams } from "react-router-dom";
 import {
   useProject,
   useDiscoverGaps,
@@ -19,6 +20,7 @@ import {
   useVerifyGap,
   useGapVerdict,
   usePatchGap,
+  useAiJob,
   getActiveRCorpusId,
 } from "../api/agentHooks";
 import { ApiError } from "../api/client";
@@ -34,6 +36,87 @@ function is404(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
 }
 
+type GapDiagnostic = {
+  structured: boolean;
+  includedCount?: number;
+  includedWithFulltext?: number;
+  fulltextEligibleCount?: number;
+  candidatesWithFulltextCount?: number;
+  message?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function numberField(source: Record<string, unknown>, key: keyof GapDiagnostic): number | undefined {
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseGapDiagnostic(error: unknown): GapDiagnostic | null {
+  if (!(error instanceof ApiError) || error.status !== 400) return null;
+  const detail = asRecord(error.detail);
+  if (!detail) return { structured: false, message: error.message };
+  return {
+    structured: true,
+    includedCount: numberField(detail, "includedCount"),
+    includedWithFulltext: numberField(detail, "includedWithFulltext"),
+    fulltextEligibleCount: numberField(detail, "fulltextEligibleCount"),
+    candidatesWithFulltextCount: numberField(detail, "candidatesWithFulltextCount"),
+    message: typeof detail.message === "string" ? detail.message : error.message,
+  };
+}
+
+function GapReadinessCard({ error, projectId }: { error: unknown; projectId: number }) {
+  const diagnostic = parseGapDiagnostic(error);
+  if (!diagnostic) return <ErrMsg error={error} />;
+
+  const includedCount = diagnostic.includedCount ?? 0;
+  const includedWithFulltext = diagnostic.includedWithFulltext ?? 0;
+  const fulltextEligibleCount = diagnostic.fulltextEligibleCount ?? 0;
+  const candidatesWithFulltextCount = diagnostic.candidatesWithFulltextCount ?? 0;
+  const conditions = [
+    { label: "已有纳入文献", ok: includedCount > 0, value: `${includedCount} 篇` },
+    { label: "纳入文献含可读全文", ok: includedWithFulltext > 0, value: `${includedWithFulltext} 篇` },
+    { label: "可自动补全文的题录", ok: fulltextEligibleCount > 0, value: `${fulltextEligibleCount} 篇` },
+    { label: "已有全文但尚未纳入", ok: candidatesWithFulltextCount > 0, value: `${candidatesWithFulltextCount} 篇` },
+  ];
+
+  return (
+    <div className="research-readiness card" role="alert">
+      <div className="research-readiness-head">
+        <h3 className="research-readiness-title">研究空白发现条件未满足</h3>
+        <p className="research-readiness-msg">
+          {diagnostic.message ?? "项目暂无可用于精读的纳入全文语料。"}
+        </p>
+      </div>
+      {diagnostic.structured && (
+        <ul className="research-readiness-list">
+          {conditions.map((item) => (
+            <li key={item.label} className={item.ok ? "is-ok" : "is-missing"}>
+              <span className="research-readiness-dot" aria-hidden="true">{item.ok ? "✓" : "!"}</span>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="research-readiness-actions">
+        <Link className="btn btn-primary" to={`/projects/${projectId}/library`}>
+          去文献库补全文
+        </Link>
+        <Link className="btn" to={`/projects/${projectId}/library`}>
+          去筛选纳入
+        </Link>
+        <Link className="btn" to={`/projects/${projectId}/library`}>
+          去上传 PDF
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export interface ResearchViewProps {
   /** dev/e2e override；缺省取自路由 params */
   projectId?: number;
@@ -43,6 +126,7 @@ export interface ResearchViewProps {
 
 export function ResearchView({ projectId: pidProp, corpusId: cidProp }: ResearchViewProps = {}) {
   const params = useParams<{ pid: string }>();
+  const queryClient = useQueryClient();
   const pid = pidProp ?? Number(params.pid);
   const validPid = Number.isFinite(pid) && pid > 0;
 
@@ -74,21 +158,57 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
   const selectedGap = gaps.find((g) => g.gap_id === selectedGapId) ?? null;
 
   const verify = useVerifyGap(pid);
+  const [verifyingGap, setVerifyingGap] = useState<{ gapId: string; runId: string | null } | null>(null);
+  const verifyJobId = verifyingGap?.runId && /^\d+$/.test(verifyingGap.runId)
+    ? Number(verifyingGap.runId)
+    : null;
+  const verifyJob = useAiJob(pid, verifyJobId, { enabled: !!verifyingGap, pollMs: 4000 });
+  const verifyJobStatus = verifyJob.data?.status;
+  const currentGapVerifying = !!selectedGap && verifyingGap?.gapId === selectedGap.gap_id;
+  const verifyFailed = currentGapVerifying && (verifyJobStatus === "failed" || verifyJobStatus === "cancelled");
   // A3-P2：verify 异步约数分钟，给等待加已耗时计时（否则盲等无反馈）。
   const [verifyElapsed, setVerifyElapsed] = useState(0);
+  const [verifyStartedAt, setVerifyStartedAt] = useState<number | null>(null);
   useEffect(() => {
-    if (!verify.isPending) {
+    if (!verifyingGap || verifyStartedAt == null) {
       setVerifyElapsed(0);
       return;
     }
-    const t0 = Date.now();
-    const iv = setInterval(() => setVerifyElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    const tick = () => setVerifyElapsed(Math.floor((Date.now() - verifyStartedAt) / 1000));
+    tick();
+    const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
-  }, [verify.isPending]);
-  const needsVerdict = !!selectedGap && selectedGap.status !== "draft";
+  }, [verifyingGap, verifyStartedAt]);
+  const needsVerdict = !!selectedGap && (selectedGap.status !== "draft" || currentGapVerifying);
+  const shouldPollVerdict = !verifyFailed;
   // 裁决异步产出：verify 后短暂 404 时继续轮询，避免「无 verdict/无错/无加载」的空白态（codex B5-P2）
-  const verdict = useGapVerdict(pid, needsVerdict ? selectedGapId : null, { poll: true });
+  const verdict = useGapVerdict(pid, needsVerdict ? selectedGapId : null, {
+    poll: shouldPollVerdict,
+    pollMs: 4000,
+  });
   const patch = usePatchGap(pid);
+
+  useEffect(() => {
+    if (!verifyingGap || !verdict.data || verdict.data.gap_id !== verifyingGap.gapId) return;
+    void queryClient.invalidateQueries({ queryKey: ["scratchpad", pid] });
+  }, [pid, queryClient, verdict.data, verifyingGap]);
+
+  useEffect(() => {
+    if (!verifyingGap || !selectedGap || selectedGap.gap_id !== verifyingGap.gapId) return;
+    if (selectedGap.status !== "draft") setVerifyingGap(null);
+  }, [selectedGap, verifyingGap]);
+
+  function startVerifyGap(gapId: string) {
+    setVerifyStartedAt(Date.now());
+    setVerifyingGap({ gapId, runId: null });
+    verify.mutate(
+      { gapId },
+      {
+        onSuccess: (r) => setVerifyingGap({ gapId, runId: r.verify_run_id }),
+        onError: () => setVerifyingGap(null),
+      },
+    );
+  }
 
   function startDiscover() {
     if (!cid) return;
@@ -154,7 +274,7 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
             需先在「分析」区构建就绪的分析语料（R corpus），才能发现研究空白。
           </div>
         )}
-        {discover.isError && <ErrMsg error={discover.error} />}
+        {discover.isError && <GapReadinessCard error={discover.error} projectId={pid} />}
 
         <div className="research-grid">
           <main className="research-main">
@@ -182,31 +302,6 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
                 <div className="card research-detail-empty" role="note">
                   从左侧选择一个研究空白，查看价值核验与 HITL 决策。
                 </div>
-              ) : selectedGap.status === "draft" ? (
-                <div className="card research-verify-prompt">
-                  <p className="research-verify-text">该研究空白尚未核验价值。</p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={verify.isPending}
-                    onClick={() => verify.mutate({ gapId: selectedGap.gap_id })}
-                  >
-                    {verify.isPending && verify.variables?.gapId === selectedGap.gap_id
-                      ? "核验中…"
-                      : "核验研究价值"}
-                  </button>
-                  {/* codex A3-P2: 计时只在"当前选中 gap 正在核验"时显示，避免核验中切到别的 draft gap 时误显示 */}
-                  {verify.isPending && verify.variables?.gapId === selectedGap.gap_id && (
-                    <p
-                      className="research-verify-progress muted"
-                      role="status"
-                      style={{ fontSize: "0.8rem", marginTop: "0.4rem" }}
-                    >
-                      已耗时 {verifyElapsed}s · 反向检索 + 计量核验通常需 1–3 分钟，请稍候
-                    </p>
-                  )}
-                  {verify.isError && <ErrMsg error={verify.error} />}
-                </div>
               ) : verdict.data ? (
                 <ValueVerdictCard
                   result={verdict.data}
@@ -215,6 +310,39 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
                   isDeciding={patch.isPending}
                   decideError={(patch.error as Error) ?? null}
                 />
+              ) : selectedGap.status === "draft" ? (
+                <div className="card research-verify-prompt">
+                  {currentGapVerifying && !verifyFailed ? (
+                    <p
+                      className="research-verify-progress muted"
+                      aria-live="polite"
+                      role="status"
+                      style={{ fontSize: "0.82rem", margin: 0 }}
+                    >
+                      <span className="spinner" /> 价值核验进行中 · 已耗时 {verifyElapsed}s · 每 4 秒自动刷新
+                    </p>
+                  ) : (
+                    <>
+                      <p className="research-verify-text">该研究空白尚未核验价值。</p>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={verify.isPending}
+                        onClick={() => startVerifyGap(selectedGap.gap_id)}
+                      >
+                        {verify.isPending && verify.variables?.gapId === selectedGap.gap_id
+                          ? "核验中…"
+                          : "核验研究价值"}
+                      </button>
+                    </>
+                  )}
+                  {verifyFailed && (
+                    <div className="research-verify-failed" role="alert">
+                      价值核验任务失败，未生成裁决。可稍后重试。
+                    </div>
+                  )}
+                  {verify.isError && <ErrMsg error={verify.error} />}
+                </div>
               ) : verdict.isError && !is404(verdict.error) ? (
                 <div className="card">
                   <ErrMsg error={verdict.error} />

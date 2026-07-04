@@ -202,6 +202,32 @@ async def test_structured_limit_and_available(session_factory, monkeypatch):
     assert row["available"] == 3
 
 
+@pytest.mark.asyncio
+async def test_structured_reports_no_fulltext(session_factory):
+    """只有题录无全文时，工具 summary 明确提示可先补全文。"""
+    pid = await _new_project(session_factory)
+    async with session_factory() as s:
+        paper = Paper(
+            title="Metadata only",
+            source="sciverse",
+            item_type="journalArticle",
+            dedup_key="title:no-fulltext-tool",
+        )
+        s.add(paper)
+        await s.flush()
+        s.add(ProjectPaper(project_id=pid, paper_id=paper.id, inclusion_status="candidate"))
+        await s.commit()
+
+    tool = ExtractTool(session_factory)
+    r = await tool.execute("structured", {"project_id": pid, "limit": 10})
+
+    assert r.success, r.error
+    row = r.data[0]
+    assert row["processed"] == 0
+    assert row["no_fulltext"] == 1
+    assert "无全文附件" in r.summary
+
+
 # ---------------------------------------------------------------------------
 # metadata
 # ---------------------------------------------------------------------------
