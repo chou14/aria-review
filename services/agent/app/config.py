@@ -62,6 +62,9 @@ class Settings:
     openalex_mailto: str = os.environ.get("OPENALEX_MAILTO", "")  # OpenAlex polite-pool 标识 (免鉴权)
     unpaywall_email: str = os.environ.get("UNPAYWALL_EMAIL", "")  # Unpaywall /v2/{doi} 必填 email (免鉴权)
     semantic_scholar_api_key: str = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")  # 无 key 易 429
+    # Semantic Scholar 认证限速约 1 req/s；进程内请求最小间隔(秒)，防并发 fan-out 突发 429。
+    semantic_scholar_min_interval_seconds: float = float(
+        os.environ.get("SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS", "1.15"))
     crossref_mailto: str = os.environ.get("CROSSREF_MAILTO", "")  # Crossref polite-pool 标识 (免鉴权)
     # 多源统一超时/重试 + PDF 安全下载闸门 (§4.5)
     multisource_timeout: float = float(os.environ.get("MULTISOURCE_TIMEOUT", "30"))

@@ -277,6 +277,7 @@ async def test_get_json_retries_on_429_then_succeeds(monkeypatch):
 
     monkeypatch.setattr(base_mod.asyncio, "sleep", _no_sleep)
     monkeypatch.setattr(settings, "multisource_max_retries", 3)
+    monkeypatch.setattr(settings, "semantic_scholar_min_interval_seconds", 0)  # 关节流保测试即时
     calls = {"n": 0}
 
     def handler(request):
@@ -299,6 +300,7 @@ async def test_get_json_exhausts_retries_returns_last_429(monkeypatch):
 
     monkeypatch.setattr(base_mod.asyncio, "sleep", _no_sleep)
     monkeypatch.setattr(settings, "multisource_max_retries", 2)
+    monkeypatch.setattr(settings, "semantic_scholar_min_interval_seconds", 0)
 
     def handler(request):
         return httpx.Response(429, json={"err": "rate"})
@@ -307,6 +309,40 @@ async def test_get_json_exhausts_retries_returns_last_429(monkeypatch):
     outcome = await src.search("q", limit=5)
     assert outcome.available is True and outcome.count == 0
     assert outcome.error and "429" in outcome.error
+
+
+async def test_semantic_throttle_spaces_requests(monkeypatch):
+    # 节流：min_interval 内的连续 semantic 请求应被间隔开，从源头避免 429。
+    import app.sources.semantic_scholar as s2
+    monkeypatch.setattr(s2, "_last_request_ts", 0.0)
+    monkeypatch.setattr(settings, "semantic_scholar_min_interval_seconds", 0.15)
+    sleeps = []
+
+    async def _rec_sleep(d):
+        sleeps.append(d)
+
+    monkeypatch.setattr(s2.asyncio, "sleep", _rec_sleep)
+
+    def handler(request):
+        return httpx.Response(200, json={"data": [{"title": "P", "paperId": "p1"}]})
+
+    # 连续两次调用：第二次应被节流 sleep 一段(接近 interval)。
+    await SemanticScholarSource(client=_mock_client(handler)).search("q", limit=3)
+    await SemanticScholarSource(client=_mock_client(handler)).search("q", limit=3)
+    assert any(d > 0 for d in sleeps), "第二次请求应被节流 sleep"
+
+
+async def test_semantic_429_message_distinguishes_key(monkeypatch):
+    # 有 key 仍 429 的文案不应误导为"未配置 key"，而应提示调节流间隔。
+    monkeypatch.setattr(settings, "semantic_scholar_api_key", "s2k-test")
+    monkeypatch.setattr(settings, "semantic_scholar_min_interval_seconds", 0)
+
+    def handler(request):
+        return httpx.Response(429, json={})
+
+    out = await SemanticScholarSource(client=_mock_client(handler)).search("q", limit=3)
+    assert "429" in out.error and "MIN_INTERVAL" in out.error
+    assert "未配置" not in out.error  # 有 key 时不应说"未配置"
 
 
 def test_available_sources_exposes_unpaywall_enrichment(monkeypatch):
