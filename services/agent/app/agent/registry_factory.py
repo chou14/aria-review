@@ -25,6 +25,7 @@ from ..tools.review_tool import ReviewTool
 from ..tools.scratchpad import ScratchpadTool
 from ..tools.search import SearchTool
 from ..tools.submit_evidence_pack import SubmitEvidencePackTool
+from ..tools.submit_feasibility_pack import SubmitFeasibilityPackTool
 
 
 def build_registry(session_factory: Callable, r_client: Any) -> ToolRegistry:
@@ -59,11 +60,14 @@ def build_registry(session_factory: Callable, r_client: Any) -> ToolRegistry:
     # A4: 价值核验证据提交（collect-only，不裁决）。写工具（标 write 串行）。value-evidence
     # subagent 经 tool_ids 选择它；裁决由 app/review/value_check.py 确定性 resolver 出。
     reg.register(SubmitEvidencePackTool())
-    # library / project / corpus / ingest / extract / scratchpad / submit_evidence_pack 含写操作
-    # → 串行执行；analysis / search / read_paper 只读。（这些工具的 tags 已含 "write"，register
-    # 会自动标记；此处显式声明以防 tags 变更。）
+    # P2: 可行性核验证据提交（collect-only，不裁决）。feasibility-scout subagent 经 tool_ids
+    # 选择它；裁决由 app/review/feasibility_check.py 确定性状态机 resolver 出。
+    reg.register(SubmitFeasibilityPackTool())
+    # library / project / corpus / ingest / extract / scratchpad / submit_evidence_pack /
+    # submit_feasibility_pack 含写操作 → 串行执行；analysis / search / read_paper 只读。
+    # （这些工具的 tags 已含 "write"，register 会自动标记；此处显式声明以防 tags 变更。）
     reg.mark_write_tools(
         "library", "project", "corpus", "ingest", "extract",
-        "scratchpad", "submit_evidence_pack",
+        "scratchpad", "submit_evidence_pack", "submit_feasibility_pack",
     )
     return reg

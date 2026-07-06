@@ -101,7 +101,7 @@ def _build_registry(saver: SaveTool) -> ToolRegistry:
 
 
 def _make_build_ctx(registry: ToolRegistry, max_rounds: int = 3):
-    async def build_ctx(project_id: int) -> AgentContext:
+    async def build_ctx(project_id: int, entry: str | None = None) -> AgentContext:
         return AgentContext(
             registry=registry,
             llm_router=_make_router(),

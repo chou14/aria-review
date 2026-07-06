@@ -35,7 +35,7 @@ from ..repositories import project as project_repo
 from ..run_status import is_terminal_run_status, normalize_run_status
 from .confirm import needs_confirmation
 from .context import AgentContext
-from .prompts import AGENT_SYSTEM
+from .entries import entry_system_prompt, entry_to_db
 
 logger = logging.getLogger("agent.run_controller")
 
@@ -66,12 +66,13 @@ class RunController:
         self,
         session_factory: Callable,
         publisher,
-        build_ctx: Callable[[int], Awaitable[AgentContext]],
+        build_ctx: Callable[..., Awaitable[AgentContext]],
     ) -> None:
         """Args:
             session_factory: async_sessionmaker，每次 DB 操作开独立会话。
             publisher: SubscribableEventPublisher（或满足 EventPublisher 协议者）。
-            build_ctx: async (project_id) -> AgentContext，构建运行所需静态上下文。
+            build_ctx: async (project_id, entry=None) -> AgentContext，构建运行所需静态
+                上下文；entry 用于 P0 三入口 tool_ids 收窄 + persona 选择。
         """
         self._session_factory = session_factory
         self._publisher = publisher
@@ -96,6 +97,7 @@ class RunController:
         project_id: int,
         user_prompt: str,
         auto_confirm: bool = False,
+        entry: str | None = None,
     ) -> int:
         """创建并落库一条 AgentRun，写入初始 messages，返回 run_id。
 
@@ -103,21 +105,30 @@ class RunController:
         决定是否给 step_once 传 confirm_check —— False 时写工具触发人工确认（run 挂起
         awaiting_confirmation，发 tool_confirm_required，经 confirm() 放行）；True 时写工具
         直接执行（仍走 ToolInvocation 幂等短路）。
+
+        entry（P0 三入口隔离）：search/review/gap；None/未知 → legacy 全工具。落库 NULL 表
+        legacy（向后兼容）。据 entry 选 system persona，并只回放同 entry 的历史（不跨入口串）。
+        tool_ids 收窄在 _build_run_ctx（据 run.entry）完成。
         """
+        db_entry = entry_to_db(entry)  # legacy → None（落 NULL）
         async with self._session_factory() as s:
             run = await repo.create_run(
-                s, project_id=project_id, auto_confirm=auto_confirm,
+                s, project_id=project_id, auto_confirm=auto_confirm, entry=db_entry,
             )
             run_id = run.id
 
         # 注入"当前项目身份"到 system prompt：缺它时模型不知道自己在哪个项目，
         # 会反复调 project.list 盲找、最终以"未提供当前项目标识"收场，综述工具
         # （基于本项目 included 语料、自动从 tool_context 取 project_id）从不被调用。
-        system_prompt = AGENT_SYSTEM + await self._project_block(project_id)
+        # persona 按 entry 选（legacy → AGENT_SYSTEM，其余 → SEARCH/REVIEW/GAP_SYSTEM）。
+        system_prompt = entry_system_prompt(entry) + await self._project_block(project_id)
 
         # 多轮对话记忆：加载本项目最近已完成对话，拼成 user/assistant 交替消息，
         # 让本条新 run 延续跨消息上文（首轮无历史 → 空列表 → 退回 [system, user]）。
-        history = await self._history_messages(project_id, exclude_run_id=run_id)
+        # 只回放同 entry（db_entry）的历史 —— 搜索/综述/gap 对话上下文互不相通。
+        history = await self._history_messages(
+            project_id, exclude_run_id=run_id, entry=db_entry,
+        )
 
         # 初始 LoopState：system + 历史多轮 + 当前 user 消息。
         # user_prompt 单独存一份：注入历史后 messages[1] 不再是本 run 的 user，
@@ -135,7 +146,7 @@ class RunController:
         return run_id
 
     async def _history_messages(
-        self, project_id: int, exclude_run_id: int,
+        self, project_id: int, exclude_run_id: int, entry: str | None = None,
     ) -> list[dict]:
         """加载本项目最近已完成对话，构建真实多轮 messages（user/assistant 交替）。
 
@@ -150,6 +161,7 @@ class RunController:
                     s, project_id,
                     exclude_run_id=exclude_run_id,
                     max_turns=_HISTORY_MAX_TURNS,
+                    entry=entry,
                 )
         except Exception:  # noqa: BLE001 — 历史加载失败退回单轮，不阻断建 run
             logger.exception(
@@ -244,10 +256,14 @@ class RunController:
         """构建并按 run 注入运行期上下文（_drive / confirm 共用）。
 
         注入：run_id / session_factory / tool_context（含 run_id/project_id/emit/
-        session_factory/override，M3 ReviewTool 据此回写证据/发事件）。保持向后兼容：
-        旧 build_ctx 不感知这些字段，由本方法事后赋值。
+        session_factory/override/allowed_tool_ids，M3 ReviewTool 据此回写证据/发事件）。
+        这些运行期字段不进 build_ctx，由本方法事后赋值到已构建的 ctx 上。
+
+        P0 三入口隔离：build_ctx 现签名为 (project_id, entry=None)，把 run.entry 透传进去
+        据此收窄 tool_ids + 选 persona；entry=None（legacy）→ 全工具，无回归。所有装配点
+        （main._build_ctx + 测试 helper）均已迁移到二参签名，无旧单参调用残留。
         """
-        ctx = await self._build_ctx(run.project_id)
+        ctx = await self._build_ctx(run.project_id, run.entry)
         ctx.run_id = run.id
         ctx.session_factory = self._session_factory
         ctx.tool_context = {
@@ -257,6 +273,9 @@ class RunController:
             "session_factory": self._session_factory,
             "override": self._overrides.get(run.id),
             "sciverse": self._sciverse_overrides.get(run.id),
+            # P0 三入口执行级硬门（codex P1）：execute_tool_calls 据此拒绝越权工具调用。
+            # None（legacy）= 不限制。ctx.tool_ids 由 _build_ctx 据 run.entry 收窄。
+            "allowed_tool_ids": ctx.tool_ids,
         }
         return ctx
 

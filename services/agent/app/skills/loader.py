@@ -57,6 +57,11 @@ SKILL_MANIFEST: dict[str, str] = {
         "为一条 GAP 攒价值核验证据（反向检索证伪 + 计量结构线索），调 submit_evidence_pack 回传；"
         "只攒证据不裁决（裁决由确定性 resolver 出）。"
     ),
+    "feasibility-scout": (
+        "为一条 GAP 攒可行性证据（数据可得性 + 方法组件基座 + 资源规模 + 负证据），调 "
+        "submit_feasibility_pack 回传；检索只用组件/要素词、禁拼完整 GAP 论断；只攒证据不裁决"
+        "（可行性裁决由确定性状态机 resolver 出，与 novelty 独立）。"
+    ),
 }
 
 # SKILL.md 最大读取字符数（超长截断，防 token 爆炸）

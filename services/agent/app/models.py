@@ -261,6 +261,9 @@ class GapCandidateRecord(Base):
         String(16), default="draft", index=True)  # draft/verified/accepted/rejected
     value_verdict: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     evidence_pack: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # P2 feasibility-scout：与 novelty 解耦的可行性裁决 + 攒证包（nullable=旧行无此列）。
+    feasibility_verdict: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    feasibility_pack: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now())
@@ -274,6 +277,9 @@ class AgentRun(Base):
     project_id: Mapped[int] = mapped_column(
         ForeignKey("project.id", ondelete="CASCADE"), index=True)
     plan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P0 三入口隔离：本 run 所属入口（search/review/gap）；NULL = legacy 全工具入口。
+    # 供 tool_ids/system_prompt 收窄 + 对话历史按 entry 隔离（list_recent_dialog 过滤）。
+    entry: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     messages_snapshot: Mapped[list | None] = mapped_column(JSON, nullable=True)
     rounds_log: Mapped[list | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(

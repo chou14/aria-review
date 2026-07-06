@@ -36,13 +36,18 @@ async def create_run(
     project_id: int,
     plan: str | None = None,
     auto_confirm: bool = False,
+    entry: str | None = None,
 ) -> AgentRun:
-    """创建一条 AgentRun（status=running），返回已持久化对象。"""
+    """创建一条 AgentRun（status=running），返回已持久化对象。
+
+    entry：三入口隔离标识（search/review/gap）；None = legacy 全工具入口（落 NULL）。
+    """
     run = AgentRun(
         project_id=project_id,
         plan=plan,
         status="running",
         auto_confirm=auto_confirm,
+        entry=entry,
     )
     s.add(run)
     await s.commit()
@@ -231,6 +236,7 @@ async def list_recent_dialog(
     *,
     exclude_run_id: int | None = None,
     max_turns: int = 6,
+    entry: str | None = None,
 ) -> list[tuple[str, str]]:
     """返回本项目最近若干轮「已完成对话」的 (用户指令, 最终回复) 列表，**时间正序**。
 
@@ -244,13 +250,21 @@ async def list_recent_dialog(
       - 多取 max_turns*3 行再过滤，最后截断到 max_turns 并反转为时间正序。
       - exclude_run_id 排除刚建的当前 run（其 status 仍是 running，本已被 status 过滤，
         此参数为双保险）。
+
+    P0 三入口隔离（codex P0-1）：只回放**同 entry** 的历史，对话上下文不跨入口串。
+      entry=None（legacy）→ 只匹配 entry IS NULL（含既有历史行 + 新 legacy run）；
+      entry='search'/'review'/'gap' → 精确匹配。这样搜索历史不会漏进综述入口反之亦然。
     """
+    entry_pred = (
+        AgentRun.entry.is_(None) if entry is None else AgentRun.entry == entry
+    )
     q = (
         select(AgentRun)
         .where(
             AgentRun.project_id == project_id,
             AgentRun.status == "done",
             AgentRun.final_output.isnot(None),
+            entry_pred,
         )
         .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
         .limit(max_turns * 3)

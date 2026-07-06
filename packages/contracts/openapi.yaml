@@ -2319,6 +2319,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrNotFound'
+  /projects/{pid}/gaps/runs/{rid}/events:
+    get:
+      operationId: gapRunEvents
+      summary: gap discover/verify 实时进度 SSE（P1 可观测）
+      description: 'text/event-stream：消除长精读/核验阶段黑箱。先订阅频道 → 补发 events_json
+        历史（Last-Event-ID 断点续传）→ 按 seq 去重转发实时，直到父终态（done/done_empty/error）关流。
+        事件类型：started / summarizing(done,total) / discovering / subagent_event(child_type) /
+        verifying / done | done_empty | error。
+
+        '
+      tags:
+      - research
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: rid
+        in: path
+        required: true
+        description: gap 发现/核验 run id（= ai_job.id）
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+      responses:
+        '200':
+          description: SSE 事件流（text/event-stream）
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '404':
+          description: gap run 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrNotFound'
   /projects/{pid}/gaps/{gap_id}:verify:
     post:
       operationId: verifyGap
@@ -2390,6 +2429,96 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrNotFound'
+  /projects/{pid}/gaps/{gap_id}:feasibility:
+    post:
+      operationId: feasibilityGap
+      summary: 启动该 GAP 的可行性核验（P2，与 novelty 独立）
+      description: '组件级侦察(数据可得性/方法组件基座/资源规模) → 确定性状态机裁决
+        buildable/hard/blocked。另建 job，写 feasibility_verdict/feasibility_pack，不碰 value_verdict。
+
+        '
+      tags:
+      - research
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: gap_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+      responses:
+        '202':
+          description: 已受理，返回 feasibility_run_id 供轮询
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feasibility_run_id:
+                    type: string
+        '404':
+          description: GAP 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrNotFound'
+  /projects/{pid}/gaps/{gap_id}/feasibility-verdict:
+    get:
+      operationId: getGapFeasibilityVerdict
+      summary: 取可行性裁决 + 攒证包（P2）
+      description: 'FeasibilityVerdict 由确定性状态机 resolver 出（decided_by 恒 deterministic），
+        与 novelty/value 独立；未核验时 409。
+
+        '
+      tags:
+      - research
+      parameters:
+      - name: pid
+        in: path
+        required: true
+        schema:
+          type: integer
+      - name: gap_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          pattern: ^[A-Za-z0-9._-]+$
+      responses:
+        '200':
+          description: 可行性裁决（含攒证包）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  gap_id:
+                    type: string
+                  verdict:
+                    $ref: '#/components/schemas/FeasibilityVerdict'
+                  pack:
+                    oneOf:
+                    - $ref: '#/components/schemas/FeasibilityPack'
+                    - type: 'null'
+        '404':
+          description: GAP 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrNotFound'
+        '409':
+          description: 尚未做可行性核验 (GAP_NOT_FEASIBILITY_CHECKED，先 POST :feasibility)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrNotReady'
   /projects/{pid}/gaps/{gap_id}:
     patch:
       operationId: patchGap
@@ -4284,6 +4413,15 @@ components:
         autoConfirm:
           type: boolean
           default: false
+        entry:
+          type: string
+          nullable: true
+          enum: [search, review, gap]
+          description: >-
+            P0 三入口隔离：search（检索建库）/ review（综述撰写）/ gap（研究空白对话）。
+            省略或 null → legacy 全工具入口（无收窄，向后兼容旧 workbench）。据此收窄
+            tool_ids + 选 system persona，并只回放同 entry 的对话历史。（后端对枚举外的
+            未知字符串也防御性归一为 legacy，但契约层只保证省略/null 的 legacy 语义。）
     ConfirmRequest:
       type: object
       required:
@@ -5643,6 +5781,83 @@ components:
           oneOf:
           - $ref: '#/components/schemas/ValueVerdict'
           - type: 'null'
+        feasibility_verdict:
+          description: 可行性裁决（P2，与 novelty 解耦）；未核验时为 null
+          oneOf:
+          - $ref: '#/components/schemas/FeasibilityVerdict'
+          - type: 'null'
+        feasibility_pack:
+          description: 可行性攒证包（collect-only，不含裁决）；未核验时为 null
+          oneOf:
+          - $ref: '#/components/schemas/FeasibilityPack'
+          - type: 'null'
+    FeasibilityVerdict:
+      type: object
+      description: '可行性裁决（P2 feasibility-scout）。状态机裁决（非浮点分），decided_by 恒
+        deterministic；与 value/novelty 独立。'
+      required:
+      - gap_id
+      - verdict
+      - data_status
+      - method_status
+      - resource_status
+      - decided_by
+      properties:
+        gap_id:
+          type: string
+        verdict:
+          type: string
+          enum: [buildable, hard, blocked]
+          description: buildable=可做 / hard=有难度 / blocked=明确不可做
+        data_status:
+          type: string
+          enum: [available, unknown, unavailable]
+        method_status:
+          type: string
+          enum: [supported, unknown, blocked]
+        resource_status:
+          type: string
+          enum: [modest, heavy, unknown]
+        rationale:
+          type: string
+        decided_by:
+          type: string
+          enum: [deterministic]
+        signals:
+          type: object
+          description: 原始状态三元组 + 证据计数，仅供 provenance/debug，非 UI 主判
+          additionalProperties: true
+    FeasibilityPack:
+      type: object
+      description: 可行性攒证包（submit_feasibility_pack 回传，collect-only；硬剥离裁决字段）
+      required:
+      - gap_id
+      properties:
+        gap_id:
+          type: string
+        data_availability:
+          type: object
+          additionalProperties: true
+        method_base:
+          type: object
+          additionalProperties: true
+        resource_scale:
+          type: object
+          additionalProperties: true
+        negative_evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        notes:
+          type: array
+          items:
+            type: string
+        skipped:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
     ReverseSearchHit:
       type: object
       description: 反向检索命中条目（证伪：已有研究是否已填补该空白）

@@ -6,6 +6,8 @@ import type {
   AgentRoundCompleteEvent,
   AgentRunCompleteEvent,
   AgentErrorEvent,
+  AgentReviewProgressEvent,
+  AgentReviewCompleteEvent,
 } from "../api/client";
 import { renderMarkdown } from "../lib/markdown";
 
@@ -101,6 +103,34 @@ function ErrorCard({ e }: { e: AgentErrorEvent }) {
   );
 }
 
+// P1: 综述 map-reduce 进度卡（非终态）——综述入口不再看不到过程。
+function ReviewProgressCard({ e }: { e: AgentReviewProgressEvent }) {
+  return (
+    <div className="timeline-card tl-review-progress">
+      <div className="tl-label">综述已合成</div>
+      <div style={{ fontSize: "0.82rem", color: "var(--ink-3)" }}>
+        精读 {e.total_papers ?? "?"} 篇 · {(e.review_chars ?? 0).toLocaleString()} 字 ·{" "}
+        {e.valid_citations ?? 0} 条可溯源引用
+        {typeof e.skipped_papers === "number" && e.skipped_papers > 0
+          ? ` · 跳过 ${e.skipped_papers} 篇（无可读全文/无溯源）`
+          : ""}
+      </div>
+    </div>
+  );
+}
+
+// P1: 综述成稿卡（携带 review_md 全文）。
+function ReviewCompleteCard({ e }: { e: AgentReviewCompleteEvent }) {
+  return (
+    <div className="timeline-card tl-review-complete tl-final-output">
+      <div className="tl-label">综述成稿</div>
+      {e.review_md && (
+        <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(e.review_md) }} />
+      )}
+    </div>
+  );
+}
+
 // Phase 5: 运行被用户取消的终态卡（灰色，区别于红色 error / 成功 run_complete）。
 function CancelledCard() {
   return (
@@ -141,6 +171,10 @@ export function RunTimeline({ events }: Props) {
             return <ErrorCard key={`err-${ev.seq}`} e={ev} />;
           case "cancelled":
             return <CancelledCard key={`cancel-${ev.seq}`} />;
+          case "review_progress":
+            return <ReviewProgressCard key={`rvp-${ev.seq}`} e={ev} />;
+          case "review_complete":
+            return <ReviewCompleteCard key={`rvc-${ev.seq}`} e={ev} />;
           default:
             return null;
         }

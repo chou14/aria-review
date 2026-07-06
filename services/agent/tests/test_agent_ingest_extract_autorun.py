@@ -142,7 +142,7 @@ async def test_agent_autonomously_ingests_then_extracts(session_factory_local, f
     monkeypatch.setattr("app.tools.extract.get_llm_client", lambda *a, **k: _FakeExtractLLM())
 
     # 3) build_ctx：真实 registry（含 IngestTool/ExtractTool），绑测试 session_factory
-    async def build_ctx(project_id: int) -> AgentContext:
+    async def build_ctx(project_id: int, entry: str | None = None) -> AgentContext:
         registry = build_registry(factory, fake_r)
         return AgentContext(
             registry=registry,

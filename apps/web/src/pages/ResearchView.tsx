@@ -30,7 +30,9 @@ import { ErrMsg } from "../lib/ui";
 import { ProjectGate } from "../components/ProjectGate";
 import { GapPanel } from "../components/research/GapPanel";
 import { ScratchpadLive } from "../components/research/ScratchpadLive";
+import { GapRunTimeline } from "../components/research/GapRunTimeline";
 import { ValueVerdictCard } from "../components/research/ValueVerdictCard";
+import { useGapRunStream } from "../hooks/useGapRunStream";
 
 function is404(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404;
@@ -159,6 +161,10 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
 
   const verify = useVerifyGap(pid);
   const [verifyingGap, setVerifyingGap] = useState<{ gapId: string; runId: string | null } | null>(null);
+  // P1 可观测：优先流当前核验 run（较短），否则流发现 run（长精读黑箱）。SSE 实时冒
+  // 精读 N/M + subagent 活动；run 终态后 GapRunTimeline 自动隐藏。
+  const activeGapRunId = verifyingGap?.runId ?? runId;
+  const gapProgress = useGapRunStream(pid, activeGapRunId, { enabled: validPid });
   const verifyJobId = verifyingGap?.runId && /^\d+$/.test(verifyingGap.runId)
     ? Number(verifyingGap.runId)
     : null;
@@ -289,6 +295,8 @@ export function ResearchView({ projectId: pidProp, corpusId: cidProp }: Research
           </main>
 
           <aside className="research-aside">
+            {/* P1 可观测：长精读/核验阶段实时进度（不黑箱）；run 终态后自动隐藏 */}
+            <GapRunTimeline progress={gapProgress} />
             <ScratchpadLive
               state={runId ? scratchpad.data : null}
               isLoading={!!runId && scratchpad.isLoading}

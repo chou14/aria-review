@@ -921,9 +921,12 @@ export async function listRuns(pid: number): Promise<{ runs: RunRef[] }> {
   return handle<{ runs: RunRef[] }>(await doFetch(`${BASE}/projects/${pid}/agent/runs`));
 }
 
+/** P0 三入口隔离：search（检索建库）/ review（综述撰写）/ gap（研究空白对话）。 */
+export type AgentEntry = "search" | "review" | "gap";
+
 export async function createRun(
   pid: number,
-  body: { prompt: string; autoConfirm?: boolean },
+  body: { prompt: string; autoConfirm?: boolean; entry?: AgentEntry | null },
   llm?: LlmRequestOptions,
   sciverse?: SciverseRequestOptions,
 ): Promise<RunRef> {
@@ -1394,6 +1397,25 @@ export interface AgentSearchResultsEvent {
   seq: number;
 }
 
+// P1: ReviewTool 在 agent run 内做综述 map-reduce 时 emit 的进度/成稿事件。
+// 现整篇综述块曾被 switch 丢弃（综述入口看不到成稿）；补 case 后前端可呈现。非终态。
+export interface AgentReviewProgressEvent {
+  type: "review_progress";
+  stage?: string;
+  total_papers?: number;
+  review_chars?: number;
+  valid_citations?: number;
+  skipped_papers?: number;
+  seq: number;
+}
+
+export interface AgentReviewCompleteEvent {
+  type: "review_complete";
+  review_md: string;
+  provenance_map?: Record<string, unknown> | null;
+  seq: number;
+}
+
 export type AgentSseEvent =
   | AgentRunStartEvent
   | AgentLlmStartEvent
@@ -1405,7 +1427,9 @@ export type AgentSseEvent =
   | AgentResumedEvent
   | AgentCancelledEvent
   | AgentToolConfirmRequiredEvent
-  | AgentSearchResultsEvent;
+  | AgentSearchResultsEvent
+  | AgentReviewProgressEvent
+  | AgentReviewCompleteEvent;
 
 export interface AgentRunHandlers {
   onRunStart?: (d: AgentRunStartEvent) => void;
@@ -1420,6 +1444,10 @@ export interface AgentRunHandlers {
   onToolConfirmRequired?: (d: AgentToolConfirmRequiredEvent) => void;
   /** P2-4: 收到检索候选事件（非终态，流继续）*/
   onSearchResults?: (d: AgentSearchResultsEvent) => void;
+  /** P1: 综述 map-reduce 进度（非终态）*/
+  onReviewProgress?: (d: AgentReviewProgressEvent) => void;
+  /** P1: 综述成稿（非终态，携带 review_md）*/
+  onReviewComplete?: (d: AgentReviewCompleteEvent) => void;
 }
 
 export async function streamAgentRun(
@@ -1527,6 +1555,13 @@ export async function streamAgentRun(
         // P2-4: 检索候选事件——非终态，流继续；候选渲染在 AgentChat 侧处理。
         case "search_results":
           handlers.onSearchResults?.(parsed as AgentSearchResultsEvent);
+          break;
+        // P1: 综述 map-reduce 进度/成稿——非终态；补 case 后综述块不再被丢。
+        case "review_progress":
+          handlers.onReviewProgress?.(parsed as AgentReviewProgressEvent);
+          break;
+        case "review_complete":
+          handlers.onReviewComplete?.(parsed as AgentReviewCompleteEvent);
           break;
       }
     });
@@ -1709,6 +1744,86 @@ export async function getScratchpad(pid: number, rid: string): Promise<Scratchpa
   return handle<ScratchpadState>(
     await doFetch(`${BASE}/projects/${pid}/agent/runs/${enc(rid)}/scratchpad`),
   );
+}
+
+// ---- P1 gap 可观测：discover/verify 进度 SSE（消除长精读/核验阶段黑箱） ----
+
+/** gap SSE 事件（与后端 routes_research emit 一致）。 */
+export interface GapSseEvent {
+  type:
+    | "started"
+    | "summarizing"
+    | "discovering"
+    | "verifying"
+    | "subagent_event"
+    | "done"
+    | "done_empty"
+    | "error";
+  seq?: number;
+  topic?: string;
+  gap_id?: string;
+  done?: number; // summarizing 进度：已精读篇数
+  total?: number; // summarizing 进度：总篇数
+  papers?: number;
+  gaps?: number;
+  verdict?: string;
+  error?: string;
+  // subagent_event 包壳字段
+  skill?: string;
+  child_type?: string;
+  round?: number | null;
+  thinking?: string;
+  tool_calls?: { name: string; args_preview?: string }[];
+  tool_results?: { tool_id?: string; action?: string; success?: boolean; summary?: string }[];
+  child_error?: string;
+}
+
+export interface GapRunHandlers {
+  onEvent?: (e: GapSseEvent) => void;
+  onDone?: (e: GapSseEvent) => void;
+  onError?: (e: GapSseEvent) => void;
+}
+
+/** GET gap 进度 SSE：实时精读 N/M + subagent 活动 + 终态。Last-Event-ID 断点续传。 */
+export async function streamGapRun(
+  pid: number,
+  rid: string,
+  opts: { lastEventId?: number; signal?: AbortSignal },
+  handlers: GapRunHandlers,
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (opts.lastEventId !== undefined) headers["Last-Event-ID"] = String(opts.lastEventId);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/projects/${pid}/gaps/runs/${enc(rid)}/events`, {
+      headers,
+      signal: opts.signal,
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new ApiError("NETWORK_ERROR", 0, (e as Error).message || "网络错误");
+  }
+  if (!res.ok || !res.body) {
+    handlers.onError?.({ type: "error", error: res.statusText, seq: -1 });
+    return;
+  }
+  try {
+    await consumeSse(res, (event, data) => {
+      if (!data) return;
+      let parsed: GapSseEvent;
+      try {
+        parsed = JSON.parse(data) as GapSseEvent;
+      } catch {
+        return;
+      }
+      handlers.onEvent?.(parsed);
+      if (event === "done" || event === "done_empty") handlers.onDone?.(parsed);
+      else if (event === "error") handlers.onError?.(parsed);
+    });
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new ApiError("STREAM_ERROR", 0, (e as Error)?.message || "流中断");
+  }
 }
 
 /** POST :verify — 启动该 GAP 价值核验（异步，202 → verify_run_id）。 */

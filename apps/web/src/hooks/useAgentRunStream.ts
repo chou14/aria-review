@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { cancelRun, confirmRun, createRun, streamAgentRun } from "../api/client";
 import type {
+  AgentEntry,
   AgentSseEvent,
   AgentToolConfirmRequiredEvent,
   LlmRequestOptions,
@@ -28,6 +29,8 @@ interface UseAgentRunStreamOptions {
   projectId: number;
   llmOptions: LlmRequestOptions;
   sciverseOptions: SciverseRequestOptions;
+  /** P0 三入口隔离：本次对话所属入口，随 createRun 传给后端做 tool_ids 收窄 + 历史隔离。 */
+  entry?: AgentEntry;
   onRunComplete?: (info: AgentRunCompleteInfo) => void;
   onRunStart?: () => void;
 }
@@ -62,6 +65,7 @@ export function useAgentRunStream({
   projectId,
   llmOptions,
   sciverseOptions,
+  entry,
   onRunComplete,
   onRunStart,
 }: UseAgentRunStreamOptions) {
@@ -105,7 +109,7 @@ export function useAgentRunStream({
     try {
       const ref = await createRun(
         projectId,
-        { prompt: text, autoConfirm },
+        { prompt: text, autoConfirm, entry },
         llmOptions,
         sciverseOptions,
       );
@@ -142,6 +146,9 @@ export function useAgentRunStream({
           onSearchResults: (d) => {
             setSearchResult((prev) => mergeSearchResults(prev, d.candidates, d.query, d.partial, d.partialReason));
           },
+          // P1: 综述进度/成稿入 events（RunTimeline 渲染），综述入口不再看不到成稿。
+          onReviewProgress: (d) => setEvents((prev) => [...prev, d]),
+          onReviewComplete: (d) => setEvents((prev) => [...prev, d]),
         },
       );
     } catch (e) {
@@ -152,7 +159,7 @@ export function useAgentRunStream({
         setRunning(false);
       }
     }
-  }, [autoConfirm, llmOptions, onRunComplete, onRunStart, projectId, prompt, running, sciverseOptions]);
+  }, [autoConfirm, entry, llmOptions, onRunComplete, onRunStart, projectId, prompt, running, sciverseOptions]);
 
   const decide = useCallback(
     async (decision: "approve" | "reject") => {

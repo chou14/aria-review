@@ -38,7 +38,8 @@ from .db import SessionLocal, engine, get_session
 from .authz import global_guard
 from .auth import get_current_user
 from .agent.context import AgentContext
-from .agent.prompts import AGENT_SYSTEM, WRAP_UP
+from .agent.entries import entry_system_prompt, entry_tool_ids
+from .agent.prompts import WRAP_UP
 from .agent.registry_factory import build_registry
 from .agent.run_controller import RunController
 from .agent.runlog import build_runlog
@@ -261,14 +262,19 @@ async def lifespan(app: FastAPI):
             or "deepseek-chat"
         )
 
-        async def _build_ctx(project_id: int) -> AgentContext:
+        async def _build_ctx(
+            project_id: int, entry: str | None = None,
+        ) -> AgentContext:
+            # P0 三入口隔离：据 entry 收窄 tool_ids 子集 + 选 system persona。
+            # entry=None（legacy）→ entry_tool_ids 返回 None（全工具）、persona=AGENT_SYSTEM，
+            # 老 workbench 不传 entry 绝不被收窄（无回归）。
             registry = build_registry(SessionLocal, app.state.r_client)
             return AgentContext(
                 registry=registry,
                 llm_router=_llm_router,
                 model_names=[_default_model],
-                system_prompt=AGENT_SYSTEM,
-                tool_ids=None,
+                system_prompt=entry_system_prompt(entry),
+                tool_ids=entry_tool_ids(entry),
                 max_rounds=6,
                 wrap_up_prompt=WRAP_UP,
             )
@@ -294,7 +300,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="BiblioCN agent", version="0.4.1", lifespan=lifespan,
+    title="BiblioCN agent", version="0.6.0", lifespan=lifespan,
     dependencies=[Depends(global_guard)],  # 全局守卫：认证 + project 归属（Round 5）
 )
 app.add_middleware(
@@ -2636,6 +2642,7 @@ async def create_agent_run(
         project_id=pid,
         user_prompt=body.prompt,
         auto_confirm=body.autoConfirm,
+        entry=body.entry,  # P0 三入口隔离：None/未知 → legacy 全工具（无回归）
     )
     # 修复4 (codex P1-12): 接入 X-LLM-Key → harness override（无 key 返回 None）。
     override = _llm_override(request)

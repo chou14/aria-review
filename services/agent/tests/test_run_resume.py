@@ -321,7 +321,7 @@ async def _wait(predicate, timeout: float = 10.0, interval: float = 0.02) -> boo
 
 
 def _make_build_ctx(registry: ToolRegistry, max_rounds: int = 6):
-    async def build_ctx(project_id: int) -> AgentContext:
+    async def build_ctx(project_id: int, entry: str | None = None) -> AgentContext:
         return AgentContext(
             registry=registry,
             llm_router=_make_router(),

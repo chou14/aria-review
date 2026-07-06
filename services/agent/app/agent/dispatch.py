@@ -43,6 +43,29 @@ _SNAPSHOT_ACTIONS = {"list"}
 # (如 openalex + sciverse 两次反向检索)，绝不可去重否则丢证据(codex A3 二审 P2)。
 _DEDUP_BY_GAP_TOOLS = {"scratchpad"}
 
+# 派发 child 时必须从 base_context 剔除的父交互会话态键（codex P0-3 上下文隔离命门）：
+# 这些是父 step_once 注入的 live 对话状态/历史，绝不能泄漏进隔离的 subagent。
+_CHILD_CONTEXT_DENY = {"state", "messages", "pending_round", "all_tool_results"}
+
+
+def build_child_context(base_context: dict | None, child_depth: int, skill_id: str) -> dict:
+    """构造 subagent 的执行上下文（codex P0-3 上下文隔离命门）。
+
+    从 base_context 复制跨入口共享的执行依赖（session_factory/scratchpad/paper_summaries/
+    topic/gap/emit/override/sciverse 等随任务而变的合法键），但**显式剔除**父交互 run 的会话
+    态键（state/messages/pending_round/all_tool_results）——父 step_once 会往 tool_context 注入
+    live state（engine.py `ctx.tool_context["state"] = state`），若原样整体复制就泄漏父历史与
+    state，污染隔离。deny-list 而非 whitelist：编排放进 ctx 的合法键随任务而变，whitelist 易漏
+    键静默饿死子 agent；deny-list 精确钉死危险键，安全且不误伤。
+    """
+    child = {
+        k: v for k, v in (base_context or {}).items()
+        if k not in _CHILD_CONTEXT_DENY
+    }
+    child["depth"] = child_depth
+    child["skill_id"] = skill_id
+    return child
+
 
 @dataclass
 class DispatchResult:
@@ -220,7 +243,8 @@ async def dispatch_to_skill(
         )
 
     system_prompt = build_subagent_system_prompt(skill_content)
-    child_context = {**(base_context or {}), "depth": child_depth, "skill_id": skill_id}
+    # 上下文隔离命门（codex P0-3）：见 build_child_context —— 剔除父会话态键，防泄漏。
+    child_context = build_child_context(base_context, child_depth, skill_id)
 
     # 4) 跑子 loop，外层 asyncio.wait_for 作硬天花板（子 loop 自身的 loop_deadline 只在轮顶检查，
     #    不能中断卡死的单次调用）。inf → timeout=None（绝不传 inf）。

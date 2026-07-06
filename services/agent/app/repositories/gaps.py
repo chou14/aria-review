@@ -23,6 +23,9 @@ def _to_domain(row: GapCandidateRecord) -> GapCandidate:
         confidence=float(row.confidence or 0.0),
         status=row.status or "draft",
         value_verdict=row.value_verdict,
+        # P2 feasibility（codex P1-3：映射函数必须双向补，否则落库出库丢字段）。
+        feasibility_verdict=row.feasibility_verdict,
+        feasibility_pack=row.feasibility_pack,
     )
 
 
@@ -35,6 +38,8 @@ def _apply(row: GapCandidateRecord, entry: GapCandidate) -> None:
     row.confidence = entry.confidence
     row.status = entry.status
     row.value_verdict = entry.value_verdict
+    row.feasibility_verdict = entry.feasibility_verdict
+    row.feasibility_pack = entry.feasibility_pack
 
 
 async def upsert_gap(

@@ -366,6 +366,32 @@ ul.clean { list-style: none; padding: 0; margin: 0; }
 /* ---------- AgentChat + RunTimeline (P1-10) ---------- */
 .agent-chat { display: flex; flex-direction: column; gap: 1rem; width: 100%; min-width: 0; }
 
+/* P0 三入口选择器（分段 tab，复用 auth-tabs 风格） */
+.agent-entry-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+  padding: 0.28rem;
+  background: var(--paper-2);
+  border-radius: var(--radius-sm);
+}
+.agent-entry-tab {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 0.5rem 0;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink-2);
+  transition: all 0.16s ease;
+}
+.agent-entry-tab:hover:not(:disabled) { color: var(--ink); }
+.agent-entry-tab:disabled { cursor: default; opacity: 0.6; }
+.agent-entry-tab-active { background: var(--card); color: var(--cinnabar); box-shadow: var(--shadow-sm); }
+.agent-entry-hint { margin: -0.4rem 0 0; font-size: 0.82rem; }
+
 /* 输入区 */
 .agent-input-row {
   display: flex; gap: 0.6rem; align-items: flex-end;
@@ -3526,6 +3552,43 @@ ul.clean { list-style: none; padding: 0; margin: 0; }
 /* ============================================================
    研究副驾 · GAP 发现面板（B2）。宣纸/朱砂调，克制无 AI-slop。
    ============================================================ */
+/* P1 gap 可观测：实时进度时间线（精读 N/M + subagent 活动） */
+.gap-timeline {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.gap-timeline-head { display: flex; align-items: center; gap: 0.5rem; }
+.gap-timeline-pulse {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink-3); flex: none;
+}
+.gap-timeline-pulse.is-live { background: var(--cinnabar); animation: sp-pulse 1.3s ease-in-out infinite; }
+.gap-timeline-phase { font-weight: 600; font-size: 0.88rem; color: var(--ink); }
+.gap-timeline-error { font-size: 0.82rem; color: var(--danger); }
+.gap-timeline-progress { display: flex; align-items: center; gap: 0.6rem; }
+.gap-timeline-bar {
+  flex: 1 1 0; height: 6px; border-radius: 3px;
+  background: var(--line-2); overflow: hidden;
+}
+.gap-timeline-bar-fill {
+  height: 100%; background: var(--cinnabar);
+  transition: width 0.4s ease;
+}
+.gap-timeline-count { font-size: 0.8rem; color: var(--ink-2); white-space: nowrap; }
+.gap-timeline-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.gap-timeline-item { display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.8rem; color: var(--ink-2); line-height: 1.45; }
+.gap-timeline-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--line-2); margin-top: 0.45rem; flex: none; }
+.gap-timeline-item[data-child-type="error"] .gap-timeline-text { color: var(--danger); }
+.gap-timeline-waiting { font-size: 0.8rem; color: var(--ink-3); font-style: italic; }
+/* 综述进度/成稿卡（agent run 时间线内） */
+.tl-review-progress .tl-label { color: var(--cinnabar-2); }
+
 .gap-panel { display: flex; flex-direction: column; gap: 1.1rem; }
 .gap-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .gap-panel-title { margin: 0; font-family: var(--serif); font-size: 1.15rem; color: var(--ink); }

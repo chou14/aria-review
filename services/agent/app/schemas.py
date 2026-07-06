@@ -742,6 +742,15 @@ class AgentRunRequest(BaseModel):
             "run 进入 awaiting_confirmation 并发 tool_confirm_required，需经 confirm 端点放行。"
         ),
     )
+    entry: str | None = Field(
+        default=None,
+        description=(
+            "P0 三入口隔离：search（检索建库）/ review（综述撰写）/ gap（研究空白对话）。"
+            "省略或 null → legacy 全工具入口（无收窄，向后兼容旧 workbench）；后端对枚举外的"
+            "未知字符串也防御性归一为 legacy，但契约只保证省略/null 的 legacy 语义。"
+            "据此收窄 tool_ids + 选 system persona，并只回放同 entry 的对话历史。"
+        ),
+    )
 
 
 class ConfirmRequest(BaseModel):

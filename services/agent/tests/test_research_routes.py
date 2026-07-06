@@ -80,7 +80,10 @@ def test_gap_dict_from_orm_like():
         counter_evidence = []; confidence = 0.5; status = "draft"; value_verdict = None
     d = _gap_dict(Row())
     assert set(d) == {"gap_id", "theme", "statement", "lens", "supporting_papers",
-                      "counter_evidence", "confidence", "status", "value_verdict"}
+                      "counter_evidence", "confidence", "status", "value_verdict",
+                      "feasibility_verdict", "feasibility_pack"}
+    # ORM 行无 feasibility 属性时 getattr 兜底 None（向后兼容旧行）
+    assert d["feasibility_verdict"] is None and d["feasibility_pack"] is None
 
 
 def test_patch_oneof_revise_requires_statement():

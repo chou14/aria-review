@@ -18,6 +18,7 @@ import logging
 import re
 import html
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.harness.llm import (
@@ -474,6 +475,7 @@ async def summarize_papers(
     *,
     concurrency: int = 4,
     override: OverrideLLMConfig | None = None,
+    on_progress: "Callable[[int, int], Awaitable[None]] | None" = None,
 ) -> list[PaperSummary]:
     """批量阅读 subagent（map 阶段并发入口）。
 
@@ -487,11 +489,17 @@ async def summarize_papers(
         topic:       综述研究主题
         concurrency: 最大并发数（asyncio.Semaphore）
         override:    per-request LLM 配置覆盖
+        on_progress: 可选进度回调 async (done, total) —— 每篇精读完成后调用一次，供 gap
+                     发现 SSE 实时冒「精读 N/M」进度（消除长精读阶段黑箱）。回调异常被隔离，
+                     绝不影响精读结果。
 
     Returns:
         PaperSummary 列表（顺序与输入对应，失败条目为 error 占位）
     """
     sem = asyncio.Semaphore(concurrency)
+    total = len(papers)
+    _done = 0
+    _progress_lock = asyncio.Lock()
 
     async def _safe_summarize(paper: dict) -> PaperSummary:
         """单篇失败隔离包装器。"""
@@ -525,6 +533,17 @@ async def summarize_papers(
                     title=title,
                     error=f"单篇处理异常（已隔离）: {e}",
                 )
+            finally:
+                # 进度回调：每篇完成即冒一次「精读 N/M」（成功/失败都算完成）。
+                if on_progress is not None:
+                    nonlocal _done
+                    async with _progress_lock:
+                        _done += 1
+                        cur = _done
+                    try:
+                        await on_progress(cur, total)
+                    except Exception:  # noqa: BLE001 — 进度回调失败绝不影响精读
+                        logger.warning("[summarize_papers] on_progress 回调异常（已忽略）")
 
     tasks = [_safe_summarize(p) for p in papers]
     results = await asyncio.gather(*tasks)

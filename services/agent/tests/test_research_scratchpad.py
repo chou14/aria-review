@@ -42,13 +42,15 @@ def test_gap_candidate_contract_roundtrip():
         confidence=0.7,
     )
     d = gc.to_dict()
-    # 契约 §2.2 字段级齐备
+    # 契约 §2.2 字段级齐备（P2 增 feasibility_verdict/feasibility_pack，默认 None）
     assert set(d) == {
         "gap_id", "theme", "statement", "lens", "supporting_papers",
         "counter_evidence", "confidence", "status", "value_verdict",
+        "feasibility_verdict", "feasibility_pack",
     }
     assert d["status"] == "draft"
     assert d["value_verdict"] is None
+    assert d["feasibility_verdict"] is None and d["feasibility_pack"] is None
     # round-trip 保真
     assert GapCandidate.from_dict(d).to_dict() == d
 

@@ -206,7 +206,7 @@ describe("AgentChat + RunTimeline", () => {
     await waitFor(() => {
       expect(mockCreateRun).toHaveBeenCalledWith(
         42,
-        { prompt: "测试指令", autoConfirm: true },
+        { prompt: "测试指令", autoConfirm: true, entry: "search" },
         expect.objectContaining({
           baseUrl: "https://api.deepseek.com/v1",
           model: "deepseek-chat",
@@ -217,6 +217,26 @@ describe("AgentChat + RunTimeline", () => {
       );
       expect(mockStreamAgentRun).toHaveBeenCalledWith(
         42, "run-123", expect.anything(), expect.anything(),
+      );
+    });
+  });
+
+  it("P0 三入口：切到「综述撰写」后 createRun 传 entry=review", async () => {
+    render(<AgentChat projectId={42} />);
+
+    // 点综述入口 tab（默认是检索建库）
+    fireEvent.click(screen.getByRole("tab", { name: /综述撰写/ }));
+    fireEvent.change(screen.getByLabelText("Agent 指令输入"), {
+      target: { value: "写综述" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /发送/ }));
+
+    await waitFor(() => {
+      expect(mockCreateRun).toHaveBeenCalledWith(
+        42,
+        { prompt: "写综述", autoConfirm: true, entry: "review" },
+        expect.anything(),
+        expect.anything(),
       );
     });
   });
@@ -239,7 +259,7 @@ describe("AgentChat + RunTimeline", () => {
     await waitFor(() => {
       expect(mockCreateRun).toHaveBeenCalledWith(
         42,
-        { prompt: "测试指令", autoConfirm: true },
+        { prompt: "测试指令", autoConfirm: true, entry: "search" },
         expect.anything(),
         expect.objectContaining({
           apiToken: "new-token",

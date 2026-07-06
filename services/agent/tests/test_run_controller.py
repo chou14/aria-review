@@ -128,9 +128,12 @@ def _build_registry() -> ToolRegistry:
 
 
 def _make_build_ctx(registry: ToolRegistry, max_rounds: int = 5):
-    """返回一个 build_ctx 协程工厂：忽略 project_id，返回固定 AgentContext。"""
+    """返回一个 build_ctx 协程工厂：忽略 project_id/entry，返回固定 AgentContext。
 
-    async def build_ctx(project_id: int) -> AgentContext:
+    entry 形参对齐 P0 三入口后 _build_run_ctx 的 build_ctx(project_id, entry) 调用签名。
+    """
+
+    async def build_ctx(project_id: int, entry: str | None = None) -> AgentContext:
         return AgentContext(
             registry=registry,
             llm_router=_make_router(),

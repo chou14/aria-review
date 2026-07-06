@@ -108,6 +108,10 @@ class GapCandidate:
     confidence: float = 0.0
     status: str = "draft"
     value_verdict: dict | None = None
+    # P2 feasibility-scout：与 novelty(value) 解耦的可行性裁决 + 攒证证据包（确定性 resolver
+    # 写入，非本层裁决）。默认 None（旧 gap 无此字段，向后兼容）。
+    feasibility_verdict: dict | None = None
+    feasibility_pack: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -120,6 +124,8 @@ class GapCandidate:
             "confidence": self.confidence,
             "status": self.status,
             "value_verdict": self.value_verdict,
+            "feasibility_verdict": self.feasibility_verdict,
+            "feasibility_pack": self.feasibility_pack,
         }
 
     @classmethod
@@ -134,6 +140,8 @@ class GapCandidate:
             confidence=float(d.get("confidence") or 0.0),
             status=str(d.get("status") or "draft"),
             value_verdict=d.get("value_verdict"),
+            feasibility_verdict=d.get("feasibility_verdict"),
+            feasibility_pack=d.get("feasibility_pack"),
         )
 
 

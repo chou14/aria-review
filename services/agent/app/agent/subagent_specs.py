@@ -64,6 +64,16 @@ SUBAGENT_SPECS: dict[str, SubagentSpec] = {
         max_depth=1,
         collect_tool_id=("submit_evidence_pack",),
     ),
+    # P2: 可行性侦察 —— 组件级检索(方法家族/工具/数据类型) + 数据可得性 + 资源规模。与
+    # value-evidence 对称(网络密集,360s);collect submit_feasibility_pack;只攒证不裁决。
+    "feasibility-scout": SubagentSpec(
+        skill_id="feasibility-scout",
+        tool_ids=("read_paper", "search", "submit_feasibility_pack"),
+        skill_timeout=360.0,
+        max_rounds=10,
+        max_depth=1,
+        collect_tool_id=("submit_feasibility_pack",),
+    ),
 }
 
 

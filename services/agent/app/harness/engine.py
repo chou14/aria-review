@@ -260,6 +260,35 @@ def _truncate_tool_content(text: str, limit: int = 4000) -> str:
 # 工具执行
 # ======================================================================
 
+def _allowed_ids_from_context(context: Any) -> set[str] | None:
+    """从执行上下文取本入口授权 tool_id 集合（P0 三入口硬门）；None = 不限制。"""
+    return context.get("allowed_tool_ids") if isinstance(context, dict) else None
+
+
+def _unauthorized_tool_msg(
+    call_id: str, tool_id: str, action: str,
+    allowed_ids: set[str], tool_result_max_chars: int,
+) -> dict:
+    """构造越权工具的拒绝消息（tool role + 失败 ToolResult），供两条执行路径共用。
+
+    P0 三入口执行级硬门（codex P1）：越权 tool_id 直接返回失败结果，绝不落 registry.execute
+    （不触发任何副作用）。LLM 收到该错误后自纠，流程正常继续。
+    """
+    unauth = ToolResult(
+        tool_id=tool_id, action=action, success=False,
+        error=(
+            f"工具 '{tool_id}' 未在当前入口授权，拒绝执行"
+            f"（本入口仅可调用：{sorted(allowed_ids)}）"
+        ),
+    )
+    return {
+        "role": "tool",
+        "tool_call_id": call_id,
+        "content": _truncate_tool_content(unauth.to_prompt_text(), tool_result_max_chars),
+        "_tool_result": unauth,
+    }
+
+
 async def execute_tool_calls(
     registry: ToolRegistry,
     tool_calls: list[dict],
@@ -285,6 +314,12 @@ async def execute_tool_calls(
         extra_params: 注入到每个工具调用的额外参数
     """
     sem = asyncio.Semaphore(concurrency)
+
+    # P0 三入口硬拦越权（codex P1）：tool_context 带 allowed_tool_ids（= ctx.tool_ids）时，
+    # 只放行本入口授权的 tool_id；未授权调用（幻觉/注入构造的越权 function name）直接返回
+    # 失败结果，绝不落到 registry.execute。None（legacy / 非交互路径 / 子代理自带上下文）
+    # = 不限制，无回归。暴露级收窄（func_defs 过滤）是第一道，这里是执行级第二道硬门。
+    _allowed_ids = _allowed_ids_from_context(context)
 
     async def _run_one(tc: dict) -> dict:
         call_id = tc.get("id", "")
@@ -325,6 +360,12 @@ async def execute_tool_calls(
             tool_id = full_name
             tool = registry.get(tool_id)
             action = tool.actions[0] if tool and tool.actions else "default"
+
+        # P0 执行级授权硬门：越权 tool_id 直接拒绝，不 registry.execute（不触发任何副作用）。
+        if _allowed_ids is not None and tool_id not in _allowed_ids:
+            return _unauthorized_tool_msg(
+                call_id, tool_id, action, _allowed_ids, tool_result_max_chars,
+            )
 
         async with sem:
             try:
@@ -498,9 +539,20 @@ async def _resolve_round_with_confirm(
 
     registry: ToolRegistry = ctx.registry  # type: ignore[assignment]
     completed: list[dict] = []
+    # P0 三入口硬门（codex P1）：确认路径也须提前拦越权工具——否则越权写工具会先入确认
+    # 队列、弹 tool_confirm_required、批准后才在 execute 被拒（confirm-then-reject）。此处在
+    # 进入确认/执行前直接拒绝，越权工具绝不入队、不弹确认。None（legacy）= 不限制。
+    allowed_ids = _allowed_ids_from_context(ctx.tool_context)
 
     for pos, tc in enumerate(tool_calls):
         call_id, tool_id, action, args = _parse_tool_call(tc)
+
+        # 越权 → 立即拒绝为一条失败 tool 消息，不入队、不确认、不执行。
+        if allowed_ids is not None and tool_id not in allowed_ids:
+            completed.append(_unauthorized_tool_msg(
+                call_id, tool_id, action, allowed_ids, config.tool_result_max_chars,
+            ))
+            continue
 
         is_write = registry.is_write_tool(tool_id)
         wants_confirm = is_write and bool(confirm_check({

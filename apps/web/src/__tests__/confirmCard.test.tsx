@@ -233,6 +233,7 @@ describe("AgentChat 确认流", () => {
         {
           prompt: "分析文献",
           autoConfirm: true,
+          entry: "search",
         },
         expect.objectContaining({
           baseUrl: "https://api.deepseek.com/v1",
@@ -260,6 +261,7 @@ describe("AgentChat 确认流", () => {
         {
           prompt: "分析文献",
           autoConfirm: false,
+          entry: "search",
         },
         expect.objectContaining({
           baseUrl: "https://api.deepseek.com/v1",
